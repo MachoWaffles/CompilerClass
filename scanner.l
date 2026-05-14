@@ -83,7 +83,7 @@ int yycolno = 1;
 [ \t]           { }
 \n              { yycolno = 1; }
 .               {
-    fprintf(stderr, "\n❌ Lexical Error at line %d, char %d:\n", yylineno, yycolno - yyleng);
+    fprintf(stderr, "\n❌ Lexical Error at line %d, char %d:\n", yylineno, (int)yycolno - yyleng);
     fprintf(stderr, "   Unknown character: '%c' (ASCII %d)\n", *yytext, *yytext);
     fprintf(stderr, "   💡 Suggestion: Remove this character or check for typos\n\n");
     exit(1);
