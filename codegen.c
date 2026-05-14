@@ -179,9 +179,32 @@ void genStmt(ASTNode* node) {
             genStmt(node->data.stmtlist.next);
             break;
 
+
+case NODE_DEC_ASSIGN: {
+    int offset = addVar(node->data.DecAssignNode.name, node->data.DecAssignNode.varType);
+    if (offset == -1) {
+        fprintf(stderr, "Error: Variable %s already declared\n", node->data.DecAssignNode.name);
+        exit(1);
+    }
+    fprintf(output, "    # Declared %s %s at offset %d\n",
+            node->data.DecAssignNode.varType,
+            node->data.DecAssignNode.name,
+            offset);
+    int reg = genExpr(node->data.DecAssignNode.value);
+    fprintf(output, "    sw $t%d, %d($sp)\n", reg, offset);
+    char tempName[10];
+    sprintf(tempName, "$t%d", reg);
+    free_temp(tempName);
+    resetTemps();
+    break;
+}
+
+
         default:
             break;
     }
+
+    
 }
 
 void generateMIPS(ASTNode* root, const char* filename) {
