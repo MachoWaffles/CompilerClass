@@ -104,6 +104,12 @@ void generateTAC(ASTNode* node) {
             generateTAC(node->data.stmtlist.next);
             break;
             
+        case NODE_DEC_ASSIGN:
+            appendTAC(createTAC(TAC_DECL, node->data.DecAssignNode.varType, NULL, node-> data.DecAssignNode.name));
+            char* expr = generateTACExpr(node->data.DecAssignNode.value);
+            appendTAC(createTAC(TAC_ASSIGN, expr, NULL, node->data.DecAssignNode.name));
+            break;
+
         default:
             break;
     }

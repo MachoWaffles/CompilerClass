@@ -68,6 +68,16 @@ ASTNode* createStmtList(ASTNode* stmt1, ASTNode* stmt2) {
     return node;
 }
 
+ASTNode* createDecAssignNode(char* type, char* name, ASTNode* value)
+{
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_DEC_ASSIGN;
+    node->data.DecAssignNode.name = strdup(name);
+    node->data.DecAssignNode.varType = strdup(type);
+    node->data.DecAssignNode.value = value;
+    return node;
+}
+
 /* Display the AST structure (for debugging and education) */
 void printAST(ASTNode* node, int level) {
     if (!node) return;

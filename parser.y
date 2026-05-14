@@ -36,7 +36,7 @@ ASTNode* root = NULL;          /* Root of the Abstract Syntax Tree */
 %token INT PRINT        /* Keywords have no semantic value */
 
 /* NON-TERMINAL TYPES - Define what type each grammar rule returns */
-%type <node> program stmt_list stmt decl assign expr print_stmt
+%type <node> program stmt_list stmt decl assign expr print_stmt decAssign 
 
 /* OPERATOR PRECEDENCE AND ASSOCIATIVITY */
 %left '+'  /* Addition is left-associative: a+b+c = (a+b)+c */
@@ -69,6 +69,7 @@ stmt_list:
 stmt:
     decl        /* Variable declaration */
     | assign    /* Assignment statement */
+    | decAssign /*decassign statement*/
     | print_stmt /* Print statement */
     ;
 
@@ -126,6 +127,16 @@ assign:
         free($1);
         $$ = NULL;
         yyerrok;
+    }
+    ;
+
+    /*Production rule that allows declaration and assign at the same time
+    int x = 5 + 2*/
+
+decAssign: 
+    INT ID '=' expr ';'{
+        $$ = createDecAssignNode("int", $2, $4);
+        free($2);
     }
     ;
 
