@@ -114,5 +114,9 @@ void printAST(ASTNode* node, int level) {
             printAST(node->data.stmtlist.stmt, level);
             printAST(node->data.stmtlist.next, level);
             break;
+        case NODE_DEC_ASSIGN:
+            printf("DECL: %s %s\n", node->data.DecAssignNode.varType, node->data.DecAssignNode.name);
+            printf("ASSIGN: %s\n", node->data.DecAssignNode.name);
+            printAST(node->data.DecAssignNode.value, level + 1);
     }
 }
