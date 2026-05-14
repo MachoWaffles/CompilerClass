@@ -104,7 +104,6 @@ void analyzeStmt(ASTNode* node) {
             break;
 
 case NODE_DEC_ASSIGN: {
-    /* Check if already declared */
     if (isVarDeclared(node->data.DecAssignNode.name)) {
         char errorMsg[256];
         sprintf(errorMsg, "Variable '%s' already declared", node->data.DecAssignNode.name);
