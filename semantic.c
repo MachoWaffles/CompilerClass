@@ -103,6 +103,23 @@ void analyzeStmt(ASTNode* node) {
             analyzeStmt(node->data.stmtlist.next);
             break;
 
+case NODE_DEC_ASSIGN: {
+    /* Check if already declared */
+    if (isVarDeclared(node->data.DecAssignNode.name)) {
+        char errorMsg[256];
+        sprintf(errorMsg, "Variable '%s' already declared", node->data.DecAssignNode.name);
+        reportSemanticError(errorMsg);
+    } else {
+        int offset = addVar(node->data.DecAssignNode.name, node->data.DecAssignNode.varType);
+        if (offset != -1) {
+            printf("  ✓ Variable '%s' (type: %s) declared and assigned\n",
+                   node->data.DecAssignNode.name, node->data.DecAssignNode.varType);
+        }
+    }
+    analyzeExpr(node->data.DecAssignNode.value);
+    break;
+}
+
         default:
             break;
     }
