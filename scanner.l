@@ -55,9 +55,26 @@ int yycolno = 1;
     yylval.str = strdup(yytext);
     return ID;
 }
+"++"            {
+    /* Consecutive + operators - common mistake from C/C++ programmers */
+    fprintf(stderr, "\n❌ Lexical Error at line %d, col %d:\n", yylineno, (int)(yycolno - yyleng));
+    fprintf(stderr, "   Consecutive '+' operators ('++') are not supported\n");
+    fprintf(stderr, "   This language does not have an increment operator\n");
+    fprintf(stderr, "   💡 Suggestion: Use 'x = x + 1;' instead of 'x++' or '++x'\n\n");
+    exit(1);
+}
 [0-9]+          {
     if (displayTokens) printf("  TOKEN: NUM %s\n", yytext);
-    yylval.num = atoi(yytext);
+    /* Check for integer overflow before storing the value */
+    long val = strtol(yytext, NULL, 10);
+    if (val > 2147483647L || val < -2147483648L) {
+        fprintf(stderr, "\n❌ Lexical Error at line %d, col %d:\n", yylineno, (int)(yycolno - yyleng));
+        fprintf(stderr, "   Integer literal '%s' overflows the int type\n", yytext);
+        fprintf(stderr, "   Valid range: -2147483648 to 2147483647\n");
+        fprintf(stderr, "   💡 Suggestion: Use a value within the valid int range\n\n");
+        exit(1);
+    }
+    yylval.num = (int)val;
     return NUM;
 }
 "+"             {
@@ -83,15 +100,15 @@ int yycolno = 1;
 [ \t]           { }
 \n              { yycolno = 1; }
 .               {
-    fprintf(stderr, "\n❌ Lexical Error at line %d, char %d:\n", yylineno, (int)(yycolno - yyleng));
-    fprintf(stderr, "   Unknown character: '%c' (ASCII %d)\n", *yytext, *yytext);
+    fprintf(stderr, "\n❌ Lexical Error at line %d, col %d:\n", yylineno, (int)(yycolno - yyleng));
+    fprintf(stderr, "   Unknown character: '%c' (ASCII %d)\n", *yytext, (int)*yytext);
     fprintf(stderr, "   💡 Suggestion: Remove this character or check for typos\n\n");
     exit(1);
 }
 <<EOF>>         {
     if (YY_START == COMMENT) {
-        fprintf(stderr, "\n❌ Lexical Error at line %d, char %d:\n", yylineno, yycolno);
-        fprintf(stderr, "   Unterminated multi-line comment\n");
+        fprintf(stderr, "\n❌ Lexical Error at line %d:\n", yylineno);
+        fprintf(stderr, "   Unterminated multi-line comment - reached end of file\n");
         fprintf(stderr, "   💡 Suggestion: Add '*/' to close the comment\n\n");
         return 0;
     }

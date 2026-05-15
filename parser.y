@@ -36,7 +36,7 @@ ASTNode* root = NULL;          /* Root of the Abstract Syntax Tree */
 %token INT PRINT        /* Keywords have no semantic value */
 
 /* NON-TERMINAL TYPES - Define what type each grammar rule returns */
-%type <node> program stmt_list stmt decl assign expr print_stmt decAssign 
+%type <node> program stmt_list stmt decl assign expr print_stmt decAssign
 
 /* OPERATOR PRECEDENCE AND ASSOCIATIVITY */
 %left '+'  /* Addition is left-associative: a+b+c = (a+b)+c */
@@ -47,7 +47,7 @@ ASTNode* root = NULL;          /* Root of the Abstract Syntax Tree */
 
 /* PROGRAM RULE - Entry point of our grammar */
 program:
-    stmt_list { 
+    stmt_list {
         /* Action: Save the statement list as our AST root */
         root = $1;  /* $1 refers to the first symbol (stmt_list) */
     }
@@ -55,11 +55,11 @@ program:
 
 /* STATEMENT LIST - Handles multiple statements */
 stmt_list:
-    stmt { 
+    stmt {
         /* Base case: single statement */
         $$ = $1;  /* Pass the statement up as-is */
     }
-    | stmt_list stmt { 
+    | stmt_list stmt {
         /* Recursive case: list followed by another statement */
         $$ = createStmtList($1, $2);  /* Build linked list of statements */
     }
@@ -69,7 +69,7 @@ stmt_list:
 stmt:
     decl        /* Variable declaration */
     | assign    /* Assignment statement */
-    | decAssign /*decassign statement*/
+    | decAssign /* Declaration with assignment */
     | print_stmt /* Print statement */
     ;
 
@@ -80,10 +80,31 @@ decl:
         $$ = createDecl("int", $2);  /* "int" = type, $2 = ID string */
         free($2);             /* Free the string copy from scanner */
     }
-    | INT ID error {
+    | INT INT ';' {
+        /* Caught: int int; — user tried to use a keyword as a variable name */
         fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
-        fprintf(stderr, "   Missing semicolon after variable declaration\n");
-        fprintf(stderr, "   💡 Suggestion: Add ';' after 'int %s'\n\n", $2);
+        fprintf(stderr, "   'int' is a reserved keyword and cannot be used as a variable name\n");
+        fprintf(stderr, "   💡 Suggestion: Choose a different name, e.g. 'int myVar;'\n\n");
+        $$ = NULL;
+        yyerrok;
+    }
+    | INT PRINT ';' {
+        /* Caught: int print; — user tried to use a keyword as a variable name */
+        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
+        fprintf(stderr, "   'print' is a reserved keyword and cannot be used as a variable name\n");
+        fprintf(stderr, "   💡 Suggestion: Choose a different name, e.g. 'int myPrint;'\n\n");
+        $$ = NULL;
+        yyerrok;
+    }
+    | INT ID error {
+        /* Caught: int x 5; or int x y; — something unexpected after "int name"
+         * This fires when the token after "int <id>" is neither ';' nor '='
+         * Hints at both possible correct forms to cover missing ; and missing = cases */
+        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
+        fprintf(stderr, "   Invalid syntax in declaration for '%s'\n", $2);
+        fprintf(stderr, "   💡 Suggestions:\n");
+        fprintf(stderr, "      • Declaration only:            'int %s;'\n", $2);
+        fprintf(stderr, "      • Declaration with assignment: 'int %s = <expression>;'\n\n", $2);
         free($2);
         $$ = NULL;
         yyerrok;
@@ -105,9 +126,21 @@ assign:
         free($1);                   /* Free the identifier string */
     }
     | ID '=' expr error {
-        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
-        fprintf(stderr, "   Missing semicolon after assignment\n");
-        fprintf(stderr, "   💡 Suggestion: Add ';' after '%s = <expression>'\n\n", $1);
+        /* Two cases land here:
+         *   1. Missing semicolon: x = 5 <EOF or next statement>
+         *   2. Chained assignment: x = y = 5; (the second '=' is the bad token)
+         * Distinguish them by checking what the offending token actually was */
+        if (yychar == '=') {
+            fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
+            fprintf(stderr, "   Chained assignment is not supported: '%s = ... = ...'\n", $1);
+            fprintf(stderr, "   💡 Suggestion: Use two separate statements:\n");
+            fprintf(stderr, "      <variable> = <value>;\n");
+            fprintf(stderr, "      %s = <variable>;\n\n", $1);
+        } else {
+            fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
+            fprintf(stderr, "   Missing semicolon after assignment\n");
+            fprintf(stderr, "   💡 Suggestion: Add ';' after '%s = <expression>'\n\n", $1);
+        }
         free($1);
         $$ = NULL;
         yyerrok;
@@ -130,28 +163,62 @@ assign:
     }
     ;
 
-    /*Production rule that allows declaration and assign at the same time
-    int x = 5 + 2*/
+    /* Production rule that allows declaration and assignment at the same time:
+       int x = 5 + 2; */
 
-decAssign: 
-    INT ID '=' expr ';'{
+decAssign:
+    INT ID '=' expr ';' {
         $$ = createDecAssignNode("int", $2, $4);
         free($2);
+    }
+    | INT INT '=' expr ';' {
+        /* Caught: int int = 5; — keyword used as variable name */
+        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
+        fprintf(stderr, "   'int' is a reserved keyword and cannot be used as a variable name\n");
+        fprintf(stderr, "   💡 Suggestion: Choose a different name, e.g. 'int myVar = <expr>;'\n\n");
+        $$ = NULL;
+        yyerrok;
+    }
+    | INT PRINT '=' expr ';' {
+        /* Caught: int print = 5; — keyword used as variable name */
+        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
+        fprintf(stderr, "   'print' is a reserved keyword and cannot be used as a variable name\n");
+        fprintf(stderr, "   💡 Suggestion: Choose a different name, e.g. 'int myPrint = <expr>;'\n\n");
+        $$ = NULL;
+        yyerrok;
+    }
+    | INT ID '=' expr error {
+        /* Caught: int x = 5 <missing semicolon> */
+        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
+        fprintf(stderr, "   Missing semicolon after declaration-assignment\n");
+        fprintf(stderr, "   💡 Suggestion: Add ';' after 'int %s = <expression>'\n\n", $2);
+        free($2);
+        $$ = NULL;
+        yyerrok;
+    }
+    | INT ID '=' error {
+        /* Caught: int x = ; or int x = @badchar */
+        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
+        fprintf(stderr, "   Invalid or missing expression in declaration-assignment for '%s'\n", $2);
+        fprintf(stderr, "   💡 Suggestion: Provide a valid expression: 'int %s = <expression>;'\n\n", $2);
+        free($2);
+        $$ = NULL;
+        yyerrok;
     }
     ;
 
 /* EXPRESSION RULES - Build expression trees */
 expr:
-    NUM { 
+    NUM {
         /* Literal number */
         $$ = createNum($1);  /* Create leaf node with number value */
     }
-    | ID { 
+    | ID {
         /* Variable reference */
         $$ = createVar($1);  /* Create leaf node with variable name */
         free($1);            /* Free the identifier string */
     }
-    | expr '+' expr { 
+    | expr '+' expr {
         /* Addition operation - builds binary tree */
         $$ = createBinOp('+', $1, $3);  /* Left child, op, right child */
     }
@@ -162,6 +229,14 @@ print_stmt:
     PRINT '(' expr ')' ';' {
         /* Create print node with expression to print */
         $$ = createPrint($3);  /* $3 is the expression inside parens */
+    }
+    | PRINT '(' ')' ';' {
+        /* Caught: print(); — no argument provided */
+        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
+        fprintf(stderr, "   print() requires an expression argument\n");
+        fprintf(stderr, "   💡 Suggestion: Use 'print(<variable or expression>);'\n\n");
+        $$ = NULL;
+        yyerrok;
     }
     | PRINT '(' expr ')' error {
         fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
