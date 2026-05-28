@@ -1,0 +1,8 @@
+// test_no_master.cm — program with functions but no Master() entry point
+// Expected: semantic error — No 'Master' function declared
+
+function add(int a, int b) returns int
+{
+    int result = a + b;
+    return result;
+}

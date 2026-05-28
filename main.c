@@ -31,7 +31,8 @@ int main(int argc, char* argv[]) {
     
     printf("\n");
     printf("╔════════════════════════════════════════════════════════════╗\n");
-    printf("║          MINIMAL C COMPILER - EDUCATIONAL VERSION          ║\n");
+    printf("║       MINIMAL COMPILER - PROJECT 3 (FUNCTIONS + TYPES)    ║\n");
+    printf("║  Supports: int/float/char/bool, functions, type checking   ║\n");
     printf("╚════════════════════════════════════════════════════════════╝\n");
     printf("\n");
     
@@ -65,7 +66,11 @@ int main(int argc, char* argv[]) {
         printf("│ Checking semantic correctness:                           │\n");
         printf("│ • Variables declared before use                          │\n");
         printf("│ • No duplicate declarations                              │\n");
-        printf("│ • Type consistency (for future extensions)               │\n");
+        printf("│ • No duplicate declarations (scoped)                     │\n");
+        printf("│ • Type compatibility on assignment and function calls    │\n");
+        printf("│ • Function signatures: arg count and types               │\n");
+        printf("│ • Return type matches function declaration               │\n");
+        printf("│ • Mandatory Master() entry point must be declared        │\n");
         printf("└──────────────────────────────────────────────────────────┘\n");
         initSemantic();
         if (!analyzeProgram(root)) {

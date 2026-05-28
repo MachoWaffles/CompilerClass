@@ -1,108 +1,171 @@
 /* AST IMPLEMENTATION
- * Functions to create and manipulate Abstract Syntax Tree nodes
- * The AST is built during parsing and used for all subsequent phases
+ * Constructors build nodes during parsing; printAST traces the tree for
+ * educational output during Phase 2 of compilation.
  */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "ast.h"
 
-/* Create a number literal node */
 ASTNode* createNum(int value) {
     ASTNode* node = malloc(sizeof(ASTNode));
     node->type = NODE_NUM;
-    node->data.num = value;  /* Store the integer value */
+    node->data.num = value;
     return node;
 }
 
-/* Create a variable reference node */
+ASTNode* createFloatLit(float value) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_FLOAT_LIT;
+    node->data.fval = value;
+    return node;
+}
+
+/* Char and bool share the `num` field because both are integral values. */
+ASTNode* createCharLit(int asciiVal) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_CHAR_LIT;
+    node->data.num = asciiVal;
+    return node;
+}
+
+ASTNode* createBoolLit(int val) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_BOOL_LIT;
+    node->data.num = val;  /* 1 = true, 0 = false */
+    return node;
+}
+
 ASTNode* createVar(char* name) {
     ASTNode* node = malloc(sizeof(ASTNode));
     node->type = NODE_VAR;
-    node->data.name = strdup(name);  /* Copy the variable name */
+    node->data.name = strdup(name);
     return node;
 }
 
-/* Create a binary operation node (for addition) */
 ASTNode* createBinOp(char op, ASTNode* left, ASTNode* right) {
     ASTNode* node = malloc(sizeof(ASTNode));
     node->type = NODE_BINOP;
-    node->data.binop.op = op;        /* Store operator (+) */
-    node->data.binop.left = left;    /* Left subtree */
-    node->data.binop.right = right;  /* Right subtree */
+    node->data.binop.op    = op;
+    node->data.binop.left  = left;
+    node->data.binop.right = right;
     return node;
 }
 
-/* Create a variable declaration node */
 ASTNode* createDecl(char* type, char* name) {
     ASTNode* node = malloc(sizeof(ASTNode));
     node->type = NODE_DECL;
-    node->data.decl.name = strdup(name);      /* Store variable name */
-    node->data.decl.varType = strdup(type);   /* Store type (e.g., "int") */
+    node->data.decl.name    = strdup(name);
+    node->data.decl.varType = strdup(type);
     return node;
 }
 
-/* Create an assignment statement node */
 ASTNode* createAssign(char* var, ASTNode* value) {
     ASTNode* node = malloc(sizeof(ASTNode));
     node->type = NODE_ASSIGN;
-    node->data.assign.var = strdup(var);  /* Variable name */
-    node->data.assign.value = value;      /* Expression tree */
+    node->data.assign.var   = strdup(var);
+    node->data.assign.value = value;
     return node;
 }
 
-/* Create a print statement node */
 ASTNode* createPrint(ASTNode* expr) {
     ASTNode* node = malloc(sizeof(ASTNode));
     node->type = NODE_PRINT;
-    node->data.expr = expr;  /* Expression to print */
+    node->data.expr = expr;
     return node;
 }
 
-/* Create a statement list node (links statements together) */
 ASTNode* createStmtList(ASTNode* stmt1, ASTNode* stmt2) {
     ASTNode* node = malloc(sizeof(ASTNode));
     node->type = NODE_STMT_LIST;
-    node->data.stmtlist.stmt = stmt1;  /* First statement */
-    node->data.stmtlist.next = stmt2;  /* Rest of list */
+    node->data.stmtlist.stmt = stmt1;
+    node->data.stmtlist.next = stmt2;
     return node;
 }
 
-ASTNode* createDecAssignNode(char* type, char* name, ASTNode* value)
-{
+ASTNode* createDecAssignNode(char* type, char* name, ASTNode* value) {
     ASTNode* node = malloc(sizeof(ASTNode));
     node->type = NODE_DEC_ASSIGN;
-    node->data.DecAssignNode.name = strdup(name);
     node->data.DecAssignNode.varType = strdup(type);
-    node->data.DecAssignNode.value = value;
+    node->data.DecAssignNode.name    = strdup(name);
+    node->data.DecAssignNode.value   = value;
     return node;
 }
 
-/* Display the AST structure (for debugging and education) */
+/* A single parameter in a function signature, e.g. "int x" */
+ASTNode* createParamDecl(char* type, char* name) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_PARAM_DECL;
+    node->data.param.paramType = strdup(type);
+    node->data.param.name      = strdup(name);
+    return node;
+}
+
+/* Full function declaration node.
+ * params: linked list of NODE_PARAM_DECL (or NULL for no params)
+ * body:   linked stmt_list (or NULL for empty body)
+ */
+ASTNode* createFuncDecl(char* name, char* returnType,
+                         ASTNode* params, ASTNode* body) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_FUNC_DECL;
+    node->data.funcDecl.name       = strdup(name);
+    node->data.funcDecl.returnType = strdup(returnType);
+    node->data.funcDecl.params     = params;
+    node->data.funcDecl.body       = body;
+    return node;
+}
+
+/* Function call expression node.
+ * args: expression linked list (reuses NODE_STMT_LIST), or NULL */
+ASTNode* createFuncCall(char* name, ASTNode* args) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_FUNC_CALL;
+    node->data.funcCall.name = strdup(name);
+    node->data.funcCall.args = args;
+    return node;
+}
+
+/* Return statement node. expr is NULL for void return. */
+ASTNode* createReturn(ASTNode* expr) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_RETURN;
+    node->data.returnExpr = expr;
+    return node;
+}
+
+/* ── PRINT AST ────────────────────────────────────────────────────────────── */
 void printAST(ASTNode* node, int level) {
     if (!node) return;
-    
-    /* Indent based on tree depth */
+
     for (int i = 0; i < level; i++) printf("  ");
-    
-    /* Print node based on its type */
-    switch(node->type) {
+
+    switch (node->type) {
         case NODE_NUM:
             printf("NUM: %d\n", node->data.num);
+            break;
+        case NODE_FLOAT_LIT:
+            printf("FLOAT_LIT: %g\n", node->data.fval);
+            break;
+        case NODE_CHAR_LIT:
+            printf("CHAR_LIT: '%c' (ASCII %d)\n", (char)node->data.num, node->data.num);
+            break;
+        case NODE_BOOL_LIT:
+            printf("BOOL_LIT: %s\n", node->data.num ? "true" : "false");
             break;
         case NODE_VAR:
             printf("VAR: %s\n", node->data.name);
             break;
         case NODE_BINOP:
             printf("BINOP: %c\n", node->data.binop.op);
-            printAST(node->data.binop.left, level + 1);
+            printAST(node->data.binop.left,  level + 1);
             printAST(node->data.binop.right, level + 1);
             break;
         case NODE_DECL:
             printf("DECL: %s %s\n", node->data.decl.varType, node->data.decl.name);
             break;
         case NODE_ASSIGN:
-            printf("ASSIGN: %s\n", node->data.assign.var);
+            printf("ASSIGN: %s =\n", node->data.assign.var);
             printAST(node->data.assign.value, level + 1);
             break;
         case NODE_PRINT:
@@ -110,13 +173,48 @@ void printAST(ASTNode* node, int level) {
             printAST(node->data.expr, level + 1);
             break;
         case NODE_STMT_LIST:
-            /* Print statements in sequence at same level */
             printAST(node->data.stmtlist.stmt, level);
             printAST(node->data.stmtlist.next, level);
             break;
         case NODE_DEC_ASSIGN:
-            printf("DECL: %s %s\n", node->data.DecAssignNode.varType, node->data.DecAssignNode.name);
-            printf("ASSIGN: %s\n", node->data.DecAssignNode.name);
+            printf("DEC_ASSIGN: %s %s =\n",
+                   node->data.DecAssignNode.varType,
+                   node->data.DecAssignNode.name);
             printAST(node->data.DecAssignNode.value, level + 1);
+            break;
+        case NODE_PARAM_DECL:
+            printf("PARAM: %s %s\n",
+                   node->data.param.paramType,
+                   node->data.param.name);
+            break;
+        case NODE_FUNC_DECL:
+            printf("FUNC_DECL: %s returns %s\n",
+                   node->data.funcDecl.name,
+                   node->data.funcDecl.returnType);
+            if (node->data.funcDecl.params) {
+                for (int i = 0; i < level + 1; i++) printf("  ");
+                printf("PARAMS:\n");
+                printAST(node->data.funcDecl.params, level + 2);
+            }
+            if (node->data.funcDecl.body) {
+                for (int i = 0; i < level + 1; i++) printf("  ");
+                printf("BODY:\n");
+                printAST(node->data.funcDecl.body, level + 2);
+            }
+            break;
+        case NODE_FUNC_CALL:
+            printf("FUNC_CALL: %s\n", node->data.funcCall.name);
+            if (node->data.funcCall.args) {
+                for (int i = 0; i < level + 1; i++) printf("  ");
+                printf("ARGS:\n");
+                printAST(node->data.funcCall.args, level + 2);
+            }
+            break;
+        case NODE_RETURN:
+            printf("RETURN\n");
+            if (node->data.returnExpr) {
+                printAST(node->data.returnExpr, level + 1);
+            }
+            break;
     }
 }

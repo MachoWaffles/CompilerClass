@@ -1,0 +1,15 @@
+// test_forward_ref.cm — Master() calls helper() which is declared AFTER Master
+// Expected: compiles cleanly (two-pass semantic analysis handles forward refs)
+
+function Master() returns nothing
+{
+    int result = helper(5, 3);
+    print(result);
+    return;
+}
+
+function helper(int a, int b) returns int
+{
+    int sum = a + b;
+    return sum;
+}

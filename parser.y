@@ -1,145 +1,171 @@
 %{
 /* SYNTAX ANALYZER (PARSER)
- * This is the second phase of compilation - checking grammar rules
- * Bison generates a parser that builds an Abstract Syntax Tree (AST)
- * The parser uses tokens from the scanner to verify syntax is correct
+ * Phase 2 of compilation — checks grammar and builds the AST.
+ * Extended for Project 3:
+ *   - type non-terminal covers int, float, char, bool, nothing
+ *   - Function declarations and calls
+ *   - Parameter lists and argument lists
+ *   - return statement
+ *   - New literal types (float, char, bool)
+ *   - Operator precedence stubs for -, *, / (grammar rules TODO)
+ *   - Array declaration grammar stub (TODO)
  */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "ast.h"
 
-/* External declarations for lexer interface */
-extern int yylex();      /* Get next token from scanner */
-extern int yyparse();    /* Parse the entire input */
-extern FILE* yyin;       /* Input file handle */
-extern int yylineno;     /* Current line number from scanner */
-extern char* yytext;     /* Current token text from scanner */
+extern int yylex();
+extern int yyparse();
+extern FILE* yyin;
+extern int yylineno;
+extern char* yytext;
 
-void yyerror(const char* s);  /* Error handling function */
-ASTNode* root = NULL;          /* Root of the Abstract Syntax Tree */
+void yyerror(const char* s);
+ASTNode* root = NULL;
 %}
 
-/* SEMANTIC VALUES UNION
- * Defines possible types for tokens and grammar symbols
- * This allows different grammar rules to return different data types
- */
+/* ── SEMANTIC VALUE UNION ───────────────────────────────────────────────── */
 %union {
-    int num;                /* For integer literals */
-    char* str;              /* For identifiers */
-    struct ASTNode* node;   /* For AST nodes */
+    int   num;          /* integer and char literals, bool (0/1) */
+    float fval;         /* float literals */
+    char* str;          /* identifiers and type strings */
+    struct ASTNode* node;
 }
 
-/* TOKEN DECLARATIONS with their semantic value types */
-%token <num> NUM        /* Number token carries an integer value */
-%token <str> ID         /* Identifier token carries a string */
-%token INT PRINT        /* Keywords have no semantic value */
+/* ── TOKEN DECLARATIONS ─────────────────────────────────────────────────── */
+%token <num> NUM          /* integer literal */
+%token <fval> FLOAT_LIT   /* float literal, e.g. 3.14 */
+%token <num> CHAR_LIT     /* char literal, e.g. 'a' — stored as ASCII int */
+%token <num> TRUE_LIT     /* true — stored as 1 */
+%token <num> FALSE_LIT    /* false — stored as 0 */
+%token <str> ID           /* identifier */
 
-/* NON-TERMINAL TYPES - Define what type each grammar rule returns */
-%type <node> program stmt_list stmt decl assign expr print_stmt decAssign
+/* Type keywords */
+%token INT FLOAT CHAR_TYPE BOOL_TYPE NOTHING
 
-/* OPERATOR PRECEDENCE AND ASSOCIATIVITY */
-%left '+'  /* Addition is left-associative: a+b+c = (a+b)+c */
+/* Function keywords */
+%token FUNCTION RETURNS RETURN_KW
+
+/* Other keywords */
+%token PRINT
+
+/* ── NON-TERMINAL TYPES ─────────────────────────────────────────────────── */
+%type <node> program top_level_list top_level_item
+%type <node> stmt_list stmt decl assign expr print_stmt decAssign
+%type <node> func_decl param_decl_list param_decl arg_list return_stmt call_stmt
+%type <str>  type
+
+/* ── OPERATOR PRECEDENCE ────────────────────────────────────────────────── */
+%left '+' '-'    /* addition and subtraction (- grammar rule TODO) */
+%left '*' '/'    /* multiplication and division (grammar rules TODO) */
 
 %%
 
-/* GRAMMAR RULES - Define the structure of our language */
-
-/* PROGRAM RULE - Entry point of our grammar */
+/* ── TOP-LEVEL PROGRAM ──────────────────────────────────────────────────── */
 program:
-    stmt_list {
-        /* Action: Save the statement list as our AST root */
-        root = $1;  /* $1 refers to the first symbol (stmt_list) */
-    }
+    top_level_list  { root = $1; }
     ;
 
-/* STATEMENT LIST - Handles multiple statements */
+/* Top-level items: global statements or function declarations */
+top_level_list:
+    top_level_item                      { $$ = $1; }
+    | top_level_list top_level_item     { $$ = createStmtList($1, $2); }
+    ;
+
+top_level_item:
+    stmt        { $$ = $1; }
+    | func_decl { $$ = $1; }
+    ;
+
+/* ── STATEMENT LIST (used inside function bodies) ────────────────────────── */
 stmt_list:
-    stmt {
-        /* Base case: single statement */
-        $$ = $1;  /* Pass the statement up as-is */
-    }
-    | stmt_list stmt {
-        /* Recursive case: list followed by another statement */
-        $$ = createStmtList($1, $2);  /* Build linked list of statements */
-    }
+    stmt                    { $$ = $1; }
+    | stmt_list stmt        { $$ = createStmtList($1, $2); }
     ;
 
-/* STATEMENT TYPES - The three kinds of statements we support */
+/* ── STATEMENT TYPES ────────────────────────────────────────────────────── */
 stmt:
-    decl        /* Variable declaration */
-    | assign    /* Assignment statement */
-    | decAssign /* Declaration with assignment */
-    | print_stmt /* Print statement */
+    decl
+    | assign
+    | decAssign
+    | print_stmt
+    | return_stmt
+    | call_stmt
     ;
 
-/* DECLARATION RULE - "int x;" */
+/* ── TYPE NON-TERMINAL ───────────────────────────────────────────────────── */
+/* Returns a static string — callers that store it must strdup it themselves */
+type:
+    INT       { $$ = "int"; }
+    | FLOAT   { $$ = "float"; }
+    | CHAR_TYPE { $$ = "char"; }
+    | BOOL_TYPE { $$ = "bool"; }
+    | NOTHING { $$ = "nothing"; }
+    ;
+
+/* ── VARIABLE DECLARATION ────────────────────────────────────────────────── */
 decl:
-    INT ID ';' {
-        /* Create declaration node and free the identifier string */
-        $$ = createDecl("int", $2);  /* "int" = type, $2 = ID string */
-        free($2);             /* Free the string copy from scanner */
+    type ID ';' {
+        $$ = createDecl($1, $2);
+        free($2);
     }
-    | INT INT ';' {
-        /* Caught: int int; — user tried to use a keyword as a variable name */
+    | type ID error {
         fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
-        fprintf(stderr, "   'int' is a reserved keyword and cannot be used as a variable name\n");
-        fprintf(stderr, "   💡 Suggestion: Choose a different name, e.g. 'int myVar;'\n\n");
-        $$ = NULL;
-        yyerrok;
-    }
-    | INT PRINT ';' {
-        /* Caught: int print; — user tried to use a keyword as a variable name */
-        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
-        fprintf(stderr, "   'print' is a reserved keyword and cannot be used as a variable name\n");
-        fprintf(stderr, "   💡 Suggestion: Choose a different name, e.g. 'int myPrint;'\n\n");
-        $$ = NULL;
-        yyerrok;
-    }
-    | INT ID error {
-        /* Caught: int x 5; or int x y; — something unexpected after "int name"
-         * This fires when the token after "int <id>" is neither ';' nor '='
-         * Hints at both possible correct forms to cover missing ; and missing = cases */
-        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
-        fprintf(stderr, "   Invalid syntax in declaration for '%s'\n", $2);
+        fprintf(stderr, "   Invalid syntax after '%s %s'\n", $1, $2);
         fprintf(stderr, "   💡 Suggestions:\n");
-        fprintf(stderr, "      • Declaration only:            'int %s;'\n", $2);
-        fprintf(stderr, "      • Declaration with assignment: 'int %s = <expression>;'\n\n", $2);
+        fprintf(stderr, "      • Declaration only:            '%s %s;'\n", $1, $2);
+        fprintf(stderr, "      • Declaration with assignment: '%s %s = <expression>;'\n\n", $1, $2);
         free($2);
         $$ = NULL;
         yyerrok;
     }
-    | INT error {
+    | type error {
         fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
         fprintf(stderr, "   Invalid or missing identifier in declaration\n");
-        fprintf(stderr, "   💡 Suggestion: Expected 'int <identifier>;'\n\n");
+        fprintf(stderr, "   💡 Suggestion: Expected '<type> <identifier>;'\n\n");
         $$ = NULL;
         yyerrok;
     }
     ;
 
-/* ASSIGNMENT RULE - "x = expr;" */
+/* ── DECLARATION WITH ASSIGNMENT ─────────────────────────────────────────── */
+decAssign:
+    type ID '=' expr ';' {
+        $$ = createDecAssignNode($1, $2, $4);
+        free($2);
+    }
+    | type ID '=' expr error {
+        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
+        fprintf(stderr, "   Missing semicolon after declaration-assignment for '%s'\n", $2);
+        free($2);
+        $$ = NULL;
+        yyerrok;
+    }
+    | type ID '=' error {
+        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
+        fprintf(stderr, "   Invalid or missing expression after '='\n");
+        free($2);
+        $$ = NULL;
+        yyerrok;
+    }
+    ;
+
+/* ── ASSIGNMENT ──────────────────────────────────────────────────────────── */
 assign:
     ID '=' expr ';' {
-        /* Create assignment node with variable name and expression */
-        $$ = createAssign($1, $3);  /* $1 = ID, $3 = expr */
-        free($1);                   /* Free the identifier string */
+        $$ = createAssign($1, $3);
+        free($1);
     }
     | ID '=' expr error {
-        /* Two cases land here:
-         *   1. Missing semicolon: x = 5 <EOF or next statement>
-         *   2. Chained assignment: x = y = 5; (the second '=' is the bad token)
-         * Distinguish them by checking what the offending token actually was */
         if (yychar == '=') {
             fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
             fprintf(stderr, "   Chained assignment is not supported: '%s = ... = ...'\n", $1);
-            fprintf(stderr, "   💡 Suggestion: Use two separate statements:\n");
-            fprintf(stderr, "      <variable> = <value>;\n");
-            fprintf(stderr, "      %s = <variable>;\n\n", $1);
+            fprintf(stderr, "   💡 Suggestion: Use two separate statements\n\n");
         } else {
             fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
-            fprintf(stderr, "   Missing semicolon after assignment\n");
-            fprintf(stderr, "   💡 Suggestion: Add ';' after '%s = <expression>'\n\n", $1);
+            fprintf(stderr, "   Missing semicolon after assignment to '%s'\n", $1);
+            fprintf(stderr, "   💡 Suggestion: Add ';' after the expression\n\n");
         }
         free($1);
         $$ = NULL;
@@ -147,91 +173,144 @@ assign:
     }
     | ID '=' error {
         fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
-        fprintf(stderr, "   Invalid expression in assignment\n");
-        fprintf(stderr, "   💡 Suggestion: Check the expression after '=' for '%s'\n\n", $1);
+        fprintf(stderr, "   Invalid expression in assignment to '%s'\n", $1);
         free($1);
         $$ = NULL;
         yyerrok;
     }
     | ID error {
         fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
-        fprintf(stderr, "   Missing '=' in assignment statement\n");
-        fprintf(stderr, "   💡 Suggestion: Use '%s = <expression>;'\n\n", $1);
+        fprintf(stderr, "   Missing '=' in assignment statement for '%s'\n", $1);
         free($1);
         $$ = NULL;
         yyerrok;
     }
     ;
 
-    /* Production rule that allows declaration and assignment at the same time:
-       int x = 5 + 2; */
+/* ── RETURN STATEMENT ────────────────────────────────────────────────────── */
+return_stmt:
+    RETURN_KW expr ';' {
+        $$ = createReturn($2);
+    }
+    | RETURN_KW ';' {
+        /* void return — no expression */
+        $$ = createReturn(NULL);
+    }
+    | RETURN_KW expr error {
+        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
+        fprintf(stderr, "   Missing semicolon after return statement\n");
+        fprintf(stderr, "   💡 Suggestion: Add ';' after the return expression\n\n");
+        $$ = NULL;
+        yyerrok;
+    }
+    ;
 
-decAssign:
-    INT ID '=' expr ';' {
-        $$ = createDecAssignNode("int", $2, $4);
+/* ── CALL STATEMENT ────────────────────────────────────────────────────── */
+call_stmt:
+    ID '(' arg_list ')' ';' {
+        $$ = createFuncCall($1, $3);
+    }
+    | ID '(' ')' ';' {
+        $$ = createFuncCall($1, NULL);
+    }
+    | ID '(' arg_list ')' error {
+        fprintf(stderr, "   Missing semicolon after function call to '%s'\n", $1);
+        yyerrok;
+        $$ = createFuncCall($1, $3);
+    }
+;
+
+/* ── FUNCTION DECLARATION ─────────────────────────────────────────────────
+ *   Syntax:  function Name(type param, ...) returns type { body }
+ *   Entry point:  function Master() returns nothing { ... }
+ */
+func_decl:
+    FUNCTION ID '(' param_decl_list ')' RETURNS type '{' stmt_list '}' {
+        $$ = createFuncDecl($2, $7, $4, $9);
         free($2);
     }
-    | INT INT '=' expr ';' {
-        /* Caught: int int = 5; — keyword used as variable name */
-        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
-        fprintf(stderr, "   'int' is a reserved keyword and cannot be used as a variable name\n");
-        fprintf(stderr, "   💡 Suggestion: Choose a different name, e.g. 'int myVar = <expr>;'\n\n");
-        $$ = NULL;
-        yyerrok;
+    | FUNCTION ID '(' param_decl_list ')' RETURNS type '{' '}' {
+        /* Function with empty body */
+        $$ = createFuncDecl($2, $7, $4, NULL);
+        free($2);
     }
-    | INT PRINT '=' expr ';' {
-        /* Caught: int print = 5; — keyword used as variable name */
+    | FUNCTION ID '(' param_decl_list ')' RETURNS type error {
         fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
-        fprintf(stderr, "   'print' is a reserved keyword and cannot be used as a variable name\n");
-        fprintf(stderr, "   💡 Suggestion: Choose a different name, e.g. 'int myPrint = <expr>;'\n\n");
-        $$ = NULL;
-        yyerrok;
-    }
-    | INT ID '=' expr error {
-        /* Caught: int x = 5 <missing semicolon> */
-        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
-        fprintf(stderr, "   Missing semicolon after declaration-assignment\n");
-        fprintf(stderr, "   💡 Suggestion: Add ';' after 'int %s = <expression>'\n\n", $2);
+        fprintf(stderr, "   Expected '{' to open function body for '%s'\n", $2);
         free($2);
         $$ = NULL;
         yyerrok;
     }
-    | INT ID '=' error {
-        /* Caught: int x = ; or int x = @badchar */
+    | FUNCTION ID '(' param_decl_list ')' error {
         fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
-        fprintf(stderr, "   Invalid or missing expression in declaration-assignment for '%s'\n", $2);
-        fprintf(stderr, "   💡 Suggestion: Provide a valid expression: 'int %s = <expression>;'\n\n", $2);
+        fprintf(stderr, "   Expected 'returns <type>' after parameter list for '%s'\n", $2);
+        free($2);
+        $$ = NULL;
+        yyerrok;
+    }
+    | FUNCTION ID error {
+        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
+        fprintf(stderr, "   Expected '(' after function name '%s'\n", $2);
         free($2);
         $$ = NULL;
         yyerrok;
     }
     ;
 
-/* EXPRESSION RULES - Build expression trees */
+/* ── PARAMETER DECLARATION LIST ──────────────────────────────────────────── */
+param_decl_list:
+    /* empty */                         { $$ = NULL; }
+    | param_decl                        { $$ = $1; }
+    | param_decl_list ',' param_decl    { $$ = createStmtList($1, $3); }
+    ;
+
+param_decl:
+    type ID {
+        $$ = createParamDecl($1, $2);
+        free($2);
+    }
+    ;
+
+/* ── EXPRESSIONS ─────────────────────────────────────────────────────────── */
 expr:
-    NUM {
-        /* Literal number */
-        $$ = createNum($1);  /* Create leaf node with number value */
-    }
-    | ID {
-        /* Variable reference */
-        $$ = createVar($1);  /* Create leaf node with variable name */
-        free($1);            /* Free the identifier string */
-    }
-    | expr '+' expr {
-        /* Addition operation - builds binary tree */
-        $$ = createBinOp('+', $1, $3);  /* Left child, op, right child */
-    }
+    NUM                     { $$ = createNum($1); }
+    | FLOAT_LIT             { $$ = createFloatLit($1); }
+    | CHAR_LIT              { $$ = createCharLit($1); }
+    | TRUE_LIT              { $$ = createBoolLit(1); }
+    | FALSE_LIT             { $$ = createBoolLit(0); }
+    | ID                    { $$ = createVar($1); free($1); }
+
+    /* Function call in expression position: e.g., int x = add(a, b); */
+    | ID '(' arg_list ')'  { $$ = createFuncCall($1, $3); free($1); }
+    | ID '(' ')'           { $$ = createFuncCall($1, NULL); free($1); }
+
+    | expr '+' expr         { $$ = createBinOp('+', $1, $3); }
+
+    /* TODO: Subtraction — add TAC_SUB, MIPS 'sub' instruction, and semantic type check
+     * | expr '-' expr      { $$ = createBinOp('-', $1, $3); }
+     */
+
+    /* TODO: Multiplication — add TAC_MUL, MIPS 'mul' instruction
+     * | expr '*' expr      { $$ = createBinOp('*', $1, $3); }
+     */
+
+    /* TODO: Division — add TAC_DIV, MIPS 'div'/'mflo', and division-by-zero check
+     * | expr '/' expr      { $$ = createBinOp('/', $1, $3); }
+     */
     ;
 
-/* PRINT STATEMENT - "print(expr);" */
+/* ── ARGUMENT LIST (for function calls) ───────────────────────────────────── */
+arg_list:
+    expr                    { $$ = $1; }
+    | arg_list ',' expr     { $$ = createStmtList($1, $3); }
+    ;
+
+/* ── PRINT STATEMENT ─────────────────────────────────────────────────────── */
 print_stmt:
     PRINT '(' expr ')' ';' {
-        /* Create print node with expression to print */
-        $$ = createPrint($3);  /* $3 is the expression inside parens */
+        $$ = createPrint($3);
     }
     | PRINT '(' ')' ';' {
-        /* Caught: print(); — no argument provided */
         fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
         fprintf(stderr, "   print() requires an expression argument\n");
         fprintf(stderr, "   💡 Suggestion: Use 'print(<variable or expression>);'\n\n");
@@ -241,28 +320,24 @@ print_stmt:
     | PRINT '(' expr ')' error {
         fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
         fprintf(stderr, "   Missing semicolon after print statement\n");
-        fprintf(stderr, "   💡 Suggestion: Add ';' after 'print(<expression>)'\n\n");
         $$ = NULL;
         yyerrok;
     }
     | PRINT '(' expr error {
         fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
         fprintf(stderr, "   Missing closing parenthesis in print statement\n");
-        fprintf(stderr, "   💡 Suggestion: Add ')' before semicolon\n\n");
         $$ = NULL;
         yyerrok;
     }
     | PRINT '(' error {
         fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
         fprintf(stderr, "   Invalid expression in print statement\n");
-        fprintf(stderr, "   💡 Suggestion: Use 'print(<expression>);'\n\n");
         $$ = NULL;
         yyerrok;
     }
     | PRINT error {
         fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
-        fprintf(stderr, "   Missing opening parenthesis in print statement\n");
-        fprintf(stderr, "   💡 Suggestion: Use 'print(<expression>);'\n\n");
+        fprintf(stderr, "   Missing opening parenthesis after 'print'\n");
         $$ = NULL;
         yyerrok;
     }
@@ -270,20 +345,17 @@ print_stmt:
 
 %%
 
-/* ERROR HANDLING - Called by Bison when syntax error detected */
 void yyerror(const char* s) {
     fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
     fprintf(stderr, "   %s", s);
-
     if (yytext && yytext[0] != '\0') {
         fprintf(stderr, " (near token: '%s')\n", yytext);
     } else {
         fprintf(stderr, "\n");
     }
-
     fprintf(stderr, "   💡 Common fixes:\n");
     fprintf(stderr, "      • Check for missing semicolons\n");
-    fprintf(stderr, "      • Verify parentheses and brackets are balanced\n");
+    fprintf(stderr, "      • Verify braces and parentheses are balanced\n");
     fprintf(stderr, "      • Ensure variables are declared before use\n");
-    fprintf(stderr, "      • Check for typos in keywords (int, print)\n\n");
+    fprintf(stderr, "      • Function syntax: function Name(type param) returns type { ... }\n\n");
 }

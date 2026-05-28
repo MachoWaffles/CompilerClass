@@ -1,99 +1,283 @@
 /* SYMBOL TABLE IMPLEMENTATION
- * Manages variable declarations and lookups
- * Essential for semantic analysis (checking if variables are declared)
- * Provides memory layout information for code generation
+ * Manages variable and function declarations across scopes.
+ * The scope field in each Symbol differentiates global variables
+ * (scope = "global") from function-local variables (scope = funcName).
+ * Lookups always check the current scope first, then fall back to global,
+ * which mirrors standard lexical scoping rules.
  */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "symtab.h"
 
-/* Global symbol table instance */
-SymbolTable symtab;
+static SymbolTable symtab;
+static FuncTable   functab;
 
-/* Initialize an empty symbol table */
+/* Active compilation scope — "global" at program start, set to a function
+ * name when the semantic analyzer enters a function body. */
+static char currentScope[256] = "global";
+
+/* ── SCOPE CONTROL ───────────────────────────────────────────────────────── */
+void setScope(const char* scope) {
+    strncpy(currentScope, scope, sizeof(currentScope) - 1);
+    /* Reset the local offset counter each time we enter a new function scope
+     * so local variable offsets always start from 0 within the function frame. */
+    symtab.nextLocalOffset = 0;
+}
+
+const char* getCurrentScope() {
+    return currentScope;
+}
+
+/* ── INITIALIZATION ──────────────────────────────────────────────────────── */
 void initSymTab() {
-    symtab.count = 0;       /* No variables yet */
-    symtab.nextOffset = 0;  /* Start at stack offset 0 */
+    symtab.count             = 0;
+    symtab.nextGlobalOffset  = 0;
+    symtab.nextLocalOffset   = 0;
+    strncpy(currentScope, "global", sizeof(currentScope) - 1);
     printf("SYMBOL TABLE: Initialized\n");
     printSymTab();
 }
 
-/* Add a new variable to the symbol table */
+void initFuncTab() {
+    functab.count = 0;
+}
+
+/* ── ADD VARIABLE ─────────────────────────────────────────────────────────── */
+/* Adds a variable in the current scope. Returns its stack offset or -1 on
+ * duplicate. The offset is relative to that scope's stack frame base. */
 int addVar(char* name, char* type) {
-    /* Check for duplicate declaration */
-    if (isVarDeclared(name)) {
-        /* Error: duplicate — goes to stderr since this is a real error condition */
-        fprintf(stderr, "SYMBOL TABLE ERROR: Cannot add '%s' — variable already declared\n", name);
+    /* Duplicate check within the same scope only — a local may shadow a global */
+    for (int i = 0; i < symtab.count; i++) {
+        if (strcmp(symtab.vars[i].name,  name) == 0 &&
+            strcmp(symtab.vars[i].scope, currentScope) == 0) {
+            fprintf(stderr,
+                "SYMBOL TABLE ERROR: '%s' already declared in scope '%s'\n",
+                name, currentScope);
+            return -1;
+        }
+    }
+
+    if (symtab.count >= MAX_VARS) {
+        fprintf(stderr, "SYMBOL TABLE ERROR: Maximum variable limit reached\n");
         return -1;
     }
 
-    /* Add new symbol entry */
-    symtab.vars[symtab.count].name = strdup(name);
-    symtab.vars[symtab.count].type = strdup(type);
-    symtab.vars[symtab.count].offset = symtab.nextOffset;
+    int offset;
+    /* Determine byte size of this type for stack offset advancement.
+     * All types currently use 4 bytes on the stack for alignment.
+     * TODO: chars and bools could use 1 byte with proper alignment padding. */
+    int byteSize = 4;
 
-    /* Advance offset by 4 bytes (size of int in MIPS) */
-    symtab.nextOffset += 4;
+    if (strcmp(currentScope, "global") == 0) {
+        offset = symtab.nextGlobalOffset;
+        symtab.nextGlobalOffset += byteSize;
+    } else {
+        offset = symtab.nextLocalOffset;
+        symtab.nextLocalOffset += byteSize;
+    }
+
+    symtab.vars[symtab.count].name   = strdup(name);
+    symtab.vars[symtab.count].type   = strdup(type);
+    symtab.vars[symtab.count].scope  = strdup(currentScope);
+    symtab.vars[symtab.count].offset = offset;
     symtab.count++;
 
-    printf("SYMBOL TABLE: Added variable '%s' at offset %d\n", name, symtab.vars[symtab.count - 1].offset);
+    printf("SYMBOL TABLE: Added '%s' (type: %s, scope: %s, offset: %d)\n",
+           name, type, currentScope, offset);
     printSymTab();
-
-    /* Return the offset for this variable */
-    return symtab.vars[symtab.count - 1].offset;
+    return offset;
 }
 
-/* Look up a variable's stack offset
- * NOTE: This function is a pure lookup — it prints nothing.
- * It is called both by callers that need the offset AND by isVarDeclared()
- * for existence checks. Printing here would produce false "not found" noise
- * during normal isVarDeclared() calls, so error messages are left to the callers. */
+/* ── LOOKUP ───────────────────────────────────────────────────────────────── */
+/* Searches current scope first, then global. Returns offset or -1. */
 int getVarOffset(char* name) {
-    /* Linear search through symbol table */
+    /* Current scope first */
     for (int i = 0; i < symtab.count; i++) {
-        if (strcmp(symtab.vars[i].name, name) == 0) {
-            return symtab.vars[i].offset;  /* Found it */
+        if (strcmp(symtab.vars[i].name,  name) == 0 &&
+            strcmp(symtab.vars[i].scope, currentScope) == 0) {
+            return symtab.vars[i].offset;
         }
     }
-    return -1;  /* Variable not found — caller decides how to handle this */
+    /* Fall back to global */
+    if (strcmp(currentScope, "global") != 0) {
+        for (int i = 0; i < symtab.count; i++) {
+            if (strcmp(symtab.vars[i].name,  name) == 0 &&
+                strcmp(symtab.vars[i].scope, "global") == 0) {
+                return symtab.vars[i].offset;
+            }
+        }
+    }
+    return -1;
 }
 
-/* Check if a variable has been declared */
 int isVarDeclared(char* name) {
-    return getVarOffset(name) != -1;  /* True if found, false otherwise */
+    return getVarOffset(name) != -1;
 }
 
-/* Print current symbol table contents for debugging/tracing */
+/* Returns the declared type of a variable, or NULL if not found. */
+char* getVarType(char* name) {
+    /* Current scope first */
+    for (int i = 0; i < symtab.count; i++) {
+        if (strcmp(symtab.vars[i].name,  name) == 0 &&
+            strcmp(symtab.vars[i].scope, currentScope) == 0) {
+            return symtab.vars[i].type;
+        }
+    }
+    /* Fall back to global */
+    for (int i = 0; i < symtab.count; i++) {
+        if (strcmp(symtab.vars[i].name,  name) == 0 &&
+            strcmp(symtab.vars[i].scope, "global") == 0) {
+            return symtab.vars[i].type;
+        }
+    }
+    return NULL;
+}
+
+/* ── PRINT ────────────────────────────────────────────────────────────────── */
 void printSymTab() {
     printf("\n=== SYMBOL TABLE STATE ===\n");
-    printf("Count: %d, Next Offset: %d\n", symtab.count, symtab.nextOffset);
+    printf("Count: %d  Global offset: %d  Local offset: %d  Scope: %s\n",
+           symtab.count, symtab.nextGlobalOffset,
+           symtab.nextLocalOffset, currentScope);
     if (symtab.count == 0) {
         printf("(empty)\n");
     } else {
-        printf("Variables:\n");
         for (int i = 0; i < symtab.count; i++) {
-            printf("  [%d] %s %s -> offset %d\n", i, symtab.vars[i].type, symtab.vars[i].name, symtab.vars[i].offset);
+            printf("  [%d] %s %s  scope='%s'  offset=%d\n", i,
+                   symtab.vars[i].type,  symtab.vars[i].name,
+                   symtab.vars[i].scope, symtab.vars[i].offset);
         }
     }
     printf("==========================\n\n");
 }
 
-/* --- Read-only accessors used by codegen for error/warning checks ---
- * These expose existing symbol table data without modifying any state. */
+/* ── READ-ONLY ACCESSORS ─────────────────────────────────────────────────── */
+int getVarCount() { return symtab.count; }
 
-/* Returns the total number of declared variables */
-int getVarCount() {
-    return symtab.count;
+char* getVarNameAt(int i) {
+    return (i >= 0 && i < symtab.count) ? symtab.vars[i].name : NULL;
 }
 
-/* Returns the name of the variable at the given index, or NULL if out of range */
-char* getVarNameAt(int index) {
-    if (index < 0 || index >= symtab.count) return NULL;
-    return symtab.vars[index].name;
+char* getVarScopeAt(int i) {
+    return (i >= 0 && i < symtab.count) ? symtab.vars[i].scope : NULL;
 }
 
-/* Returns the total bytes of stack space used by all declared variables */
+int getVarOffsetAt(int i) {
+    return (i >= 0 && i < symtab.count) ? symtab.vars[i].offset : -1;
+}
+
+/* Returns bytes used by the current scope (global or local). */
 int getStackUsage() {
-    return symtab.nextOffset;
+    return strcmp(currentScope, "global") == 0
+        ? symtab.nextGlobalOffset
+        : symtab.nextLocalOffset;
+}
+
+/* Returns 1 if the named variable lives in global scope, 0 otherwise.
+ * Follows the same search order as getVarOffset (current scope first, then
+ * global fallback) so that a local that shadows a global is handled correctly.
+ * Used by codegen to decide whether to address via $sp (global) or $fp (local).
+ */
+int isVarGlobal(const char* name) {
+    /* Current scope first */
+    for (int i = 0; i < symtab.count; i++) {
+        if (strcmp(symtab.vars[i].name,  name) == 0 &&
+            strcmp(symtab.vars[i].scope, currentScope) == 0)
+            return strcmp(symtab.vars[i].scope, "global") == 0;
+    }
+    /* Fall back to global */
+    for (int i = 0; i < symtab.count; i++) {
+        if (strcmp(symtab.vars[i].name,  name) == 0 &&
+            strcmp(symtab.vars[i].scope, "global") == 0)
+            return 1;
+    }
+    return 0;
+}
+
+/* ── FUNCTION TABLE ───────────────────────────────────────────────────────── */
+/* Registers a function name and return type. Returns 0 on success, -1 if
+ * a function with that name already exists. */
+int addFunc(char* name, char* returnType) {
+    for (int i = 0; i < functab.count; i++) {
+        if (strcmp(functab.funcs[i].name, name) == 0) {
+            fprintf(stderr,
+                "FUNCTION TABLE ERROR: Function '%s' already declared\n", name);
+            return -1;
+        }
+    }
+    if (functab.count >= MAX_FUNCS) {
+        fprintf(stderr, "FUNCTION TABLE ERROR: Maximum function limit reached\n");
+        return -1;
+    }
+    int idx = functab.count++;
+    functab.funcs[idx].name       = strdup(name);
+    functab.funcs[idx].returnType = strdup(returnType);
+    functab.funcs[idx].paramCount = 0;
+    printf("FUNCTION TABLE: Registered '%s' returns %s\n", name, returnType);
+    return 0;
+}
+
+/* Adds one parameter to an already-registered function. */
+int addFuncParam(char* funcName, char* paramType, char* paramName) {
+    for (int i = 0; i < functab.count; i++) {
+        if (strcmp(functab.funcs[i].name, funcName) == 0) {
+            int p = functab.funcs[i].paramCount;
+            if (p >= MAX_PARAMS) {
+                fprintf(stderr,
+                    "FUNCTION TABLE ERROR: Too many parameters for '%s'\n", funcName);
+                return -1;
+            }
+            functab.funcs[i].paramTypes[p] = strdup(paramType);
+            functab.funcs[i].paramNames[p] = strdup(paramName);
+            functab.funcs[i].paramCount++;
+            return 0;
+        }
+    }
+    fprintf(stderr,
+        "FUNCTION TABLE ERROR: Cannot add param — function '%s' not found\n", funcName);
+    return -1;
+}
+
+int isFuncDeclared(char* name) {
+    for (int i = 0; i < functab.count; i++) {
+        if (strcmp(functab.funcs[i].name, name) == 0) return 1;
+    }
+    return 0;
+}
+
+char* getFuncReturnType(char* name) {
+    for (int i = 0; i < functab.count; i++) {
+        if (strcmp(functab.funcs[i].name, name) == 0)
+            return functab.funcs[i].returnType;
+    }
+    return NULL;
+}
+
+int getFuncParamCount(char* name) {
+    for (int i = 0; i < functab.count; i++) {
+        if (strcmp(functab.funcs[i].name, name) == 0)
+            return functab.funcs[i].paramCount;
+    }
+    return -1;
+}
+
+char* getFuncParamType(char* name, int idx) {
+    for (int i = 0; i < functab.count; i++) {
+        if (strcmp(functab.funcs[i].name, name) == 0) {
+            if (idx < 0 || idx >= functab.funcs[i].paramCount) return NULL;
+            return functab.funcs[i].paramTypes[idx];
+        }
+    }
+    return NULL;
+}
+
+char* getFuncParamName(char* name, int idx) {
+    for (int i = 0; i < functab.count; i++) {
+        if (strcmp(functab.funcs[i].name, name) == 0) {
+            if (idx < 0 || idx >= functab.funcs[i].paramCount) return NULL;
+            return functab.funcs[i].paramNames[idx];
+        }
+    }
+    return NULL;
 }

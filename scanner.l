@@ -1,121 +1,117 @@
 %{
-/* LEXICAL ANALYZER (SCANNER)
- * This is the first phase of compilation - breaking input into tokens
- * Flex generates a scanner from these rules that reads character by character
- */
 #include <stdio.h>
 #include <stdlib.h>
-#include "parser.tab.h"  /* Token definitions from Bison */
-/* Global flag to enable token display */
+#include <string.h>
+#include "parser.tab.h"
+
 extern int displayTokens;
 int yycolno = 1;
-%}
-/* Flex options to suppress warnings for unused functions */
-%option nounput
-%option noinput
-%option yylineno
-%{
+
 #define YY_USER_ACTION \
     yycolno += yyleng;
 %}
-/* Exclusive start condition for multi-line comments */
+
+%option nounput
+%option noinput
+%option yylineno
+
 %x COMMENT
+
 %%
-"//".*          {
-    /* Single-line comment - ignore everything from // to end of line */
-    if (displayTokens) printf("  (ignoring single-line comment)\n");
-}
-"/*"            {
-    /* Start of multi-line comment - switch to COMMENT state */
-    if (displayTokens) printf("  (start multi-line comment)\n");
-    BEGIN(COMMENT);
-}
-<COMMENT>"*/"   {
-    /* End of multi-line comment - return to normal scanning */
-    if (displayTokens) printf("  (end multi-line comment)\n");
-    BEGIN(INITIAL);
-}
-<COMMENT>\n     {
-    /* Newline inside comment - reset column and continue in COMMENT state */
-    yycolno = 1;
-}
-<COMMENT>.      {
-    /* Any other character inside comment - ignore */
-}
-"int"           {
-    if (displayTokens) printf("  TOKEN: INT keyword\n");
-    return INT;
-}
-"print"         {
-    if (displayTokens) printf("  TOKEN: PRINT keyword\n");
-    return PRINT;
-}
+
+"//".*          { if (displayTokens) printf("  (ignoring single-line comment)\n"); }
+
+"/*"            { if (displayTokens) printf("  (start multi-line comment)\n"); BEGIN(COMMENT); }
+<COMMENT>"*/"   { if (displayTokens) printf("  (end multi-line comment)\n"); BEGIN(INITIAL); }
+<COMMENT>\n     { yycolno = 1; }
+<COMMENT>.      { }
+
+"int"           { if (displayTokens) printf("  TOKEN: INT keyword\n");      return INT; }
+"float"         { if (displayTokens) printf("  TOKEN: FLOAT keyword\n");    return FLOAT; }
+"char"          { if (displayTokens) printf("  TOKEN: CHAR keyword\n");     return CHAR_TYPE; }
+"bool"          { if (displayTokens) printf("  TOKEN: BOOL keyword\n");     return BOOL_TYPE; }
+"nothing"       { if (displayTokens) printf("  TOKEN: NOTHING keyword\n");  return NOTHING; }
+
+"function"      { if (displayTokens) printf("  TOKEN: FUNCTION keyword\n"); return FUNCTION; }
+"returns"       { if (displayTokens) printf("  TOKEN: RETURNS keyword\n");  return RETURNS; }
+"return"        { if (displayTokens) printf("  TOKEN: RETURN keyword\n");   return RETURN_KW; }
+
+"true"          { if (displayTokens) printf("  TOKEN: true (bool literal)\n");  yylval.num = 1; return TRUE_LIT; }
+"false"         { if (displayTokens) printf("  TOKEN: false (bool literal)\n"); yylval.num = 0; return FALSE_LIT; }
+
+"print"         { if (displayTokens) printf("  TOKEN: PRINT keyword\n"); return PRINT; }
+
 [a-zA-Z_][a-zA-Z0-9_]* {
     if (displayTokens) printf("  TOKEN: ID '%s'\n", yytext);
     yylval.str = strdup(yytext);
     return ID;
 }
+
+[0-9]+\.[0-9]+ {
+    if (displayTokens) printf("  TOKEN: FLOAT_LIT %s\n", yytext);
+    yylval.fval = atof(yytext);
+    return FLOAT_LIT;
+}
+
 "++"            {
-    /* Consecutive + operators - common mistake from C/C++ programmers */
-    fprintf(stderr, "\n❌ Lexical Error at line %d, col %d:\n", yylineno, (int)(yycolno - yyleng));
+    fprintf(stderr, "\nLexical Error at line %d, col %d:\n", yylineno, (int)(yycolno - yyleng));
     fprintf(stderr, "   Consecutive '+' operators ('++') are not supported\n");
-    fprintf(stderr, "   This language does not have an increment operator\n");
-    fprintf(stderr, "   💡 Suggestion: Use 'x = x + 1;' instead of 'x++' or '++x'\n\n");
+    fprintf(stderr, "   Suggestion: Use 'x = x + 1;' instead\n\n");
     exit(1);
 }
+
 [0-9]+          {
     if (displayTokens) printf("  TOKEN: NUM %s\n", yytext);
-    /* Check for integer overflow before storing the value */
     long val = strtol(yytext, NULL, 10);
     if (val > 2147483647L || val < -2147483648L) {
-        fprintf(stderr, "\n❌ Lexical Error at line %d, col %d:\n", yylineno, (int)(yycolno - yyleng));
+        fprintf(stderr, "\nLexical Error at line %d, col %d:\n", yylineno, (int)(yycolno - yyleng));
         fprintf(stderr, "   Integer literal '%s' overflows the int type\n", yytext);
-        fprintf(stderr, "   Valid range: -2147483648 to 2147483647\n");
-        fprintf(stderr, "   💡 Suggestion: Use a value within the valid int range\n\n");
+        fprintf(stderr, "   Valid range: -2147483648 to 2147483647\n\n");
         exit(1);
     }
     yylval.num = (int)val;
     return NUM;
 }
-"+"             {
-    if (displayTokens) printf("  TOKEN: '+'\n");
-    return '+';
-}
-"="             {
-    if (displayTokens) printf("  TOKEN: '='\n");
-    return '=';
-}
-";"             {
-    if (displayTokens) printf("  TOKEN: ';'\n");
-    return ';';
-}
-"("             {
-    if (displayTokens) printf("  TOKEN: '('\n");
-    return '(';
-}
-")"             {
-    if (displayTokens) printf("  TOKEN: ')'\n");
-    return ')';
-}
+
+\'[^\'\\]\'     { if (displayTokens) printf("  TOKEN: CHAR_LIT '%c'\n", yytext[1]); yylval.num = (int)yytext[1]; return CHAR_LIT; }
+\'\\n\'         { if (displayTokens) printf("  TOKEN: CHAR_LIT newline\n");          yylval.num = '\n'; return CHAR_LIT; }
+\'\\t\'         { if (displayTokens) printf("  TOKEN: CHAR_LIT tab\n");              yylval.num = '\t'; return CHAR_LIT; }
+\'\\\\\'        { if (displayTokens) printf("  TOKEN: CHAR_LIT backslash\n");        yylval.num = '\\'; return CHAR_LIT; }
+
+"+"             { if (displayTokens) printf("  TOKEN: '+'\n"); return '+'; }
+"="             { if (displayTokens) printf("  TOKEN: '='\n"); return '='; }
+"-"             { if (displayTokens) printf("  TOKEN: '-'\n"); return '-'; }
+"*"             { if (displayTokens) printf("  TOKEN: '*'\n"); return '*'; }
+"/"             { if (displayTokens) printf("  TOKEN: '/'\n"); return '/'; }
+"["             { if (displayTokens) printf("  TOKEN: '['\n"); return '['; }
+"]"             { if (displayTokens) printf("  TOKEN: ']'\n"); return ']'; }
+";"             { if (displayTokens) printf("  TOKEN: ';'\n"); return ';'; }
+"("             { if (displayTokens) printf("  TOKEN: '('\n"); return '('; }
+")"             { if (displayTokens) printf("  TOKEN: ')'\n"); return ')'; }
+"{"             { if (displayTokens) printf("  TOKEN: '{'\n"); return '{'; }
+"}"             { if (displayTokens) printf("  TOKEN: '}'\n"); return '}'; }
+","             { if (displayTokens) printf("  TOKEN: ','\n"); return ','; }
+
 [ \t]           { }
 \n              { yycolno = 1; }
+
 .               {
-    fprintf(stderr, "\n❌ Lexical Error at line %d, col %d:\n", yylineno, (int)(yycolno - yyleng));
+    fprintf(stderr, "\nLexical Error at line %d, col %d:\n", yylineno, (int)(yycolno - yyleng));
     fprintf(stderr, "   Unknown character: '%c' (ASCII %d)\n", *yytext, (int)*yytext);
-    fprintf(stderr, "   💡 Suggestion: Remove this character or check for typos\n\n");
+    fprintf(stderr, "   Suggestion: Remove this character or check for typos\n\n");
     exit(1);
 }
+
 <<EOF>>         {
     if (YY_START == COMMENT) {
-        fprintf(stderr, "\n❌ Lexical Error at line %d:\n", yylineno);
+        fprintf(stderr, "\nLexical Error at line %d:\n", yylineno);
         fprintf(stderr, "   Unterminated multi-line comment - reached end of file\n");
-        fprintf(stderr, "   💡 Suggestion: Add '*/' to close the comment\n\n");
+        fprintf(stderr, "   Suggestion: Add '*/' to close the comment\n\n");
         return 0;
     }
     yyterminate();
 }
+
 %%
-/* Required by Flex - signals end of input */
-int yywrap() {
-    return 1;  /* 1 means no more input files */
-}
+
+int yywrap() { return 1; }

@@ -1,0 +1,20 @@
+// test_comments.cm — verifies single-line and multi-line comments are ignored
+// Updated for Project 3: all code inside Master()
+
+/* This is a
+   multi-line comment
+   spanning multiple lines */
+
+function Master() returns nothing
+{
+    int x;  // Declare a variable
+
+    x = 5;  /* inline multi-line comment */
+
+    // Another comment
+    int y;
+    y = x + 10;
+
+    print(y);  // Should print 15
+    return;
+}

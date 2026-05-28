@@ -1,0 +1,15 @@
+// test_arg_error.cm — wrong argument count to a function
+// Expected: semantic error — add() takes 2 args, called with 3
+
+function add(int a, int b) returns int
+{
+    int result = a + b;
+    return result;
+}
+
+function Master() returns nothing
+{
+    int z = add(1, 2, 3);   // ERROR: too many arguments
+    print(z);
+    return;
+}

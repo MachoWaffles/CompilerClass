@@ -4,21 +4,27 @@
 #include "ast.h"
 
 /* SEMANTIC ANALYZER
- * Performs semantic checks on the AST before code generation
- * Checks for semantic errors like:
- * - Using undeclared variables
- * - Duplicate variable declarations
- * - Type mismatches (in future extensions)
+ * Phase 3 of compilation — validates the AST for correctness beyond syntax.
+ * Extended for Project 3 to check:
+ *   - Functions declared before being called
+ *   - Argument count matches declared parameter count
+ *   - Argument types are compatible with parameter types
+ *   - Return type of return statement matches the enclosing function's type
+ *   - Type compatibility on variable assignment (widening allowed: int → float)
+ *   - Mandatory Master() entry point is declared somewhere in the program
  */
 
-/* Global semantic error tracking */
 extern int semanticErrors;
 
-/* SEMANTIC ANALYSIS FUNCTIONS */
-void initSemantic();                    /* Initialize semantic analyzer */
-int analyzeProgram(ASTNode* root);      /* Analyze entire program, returns 1 if valid, 0 if errors */
-void analyzeStmt(ASTNode* node);        /* Analyze a statement */
-void analyzeExpr(ASTNode* node);        /* Analyze an expression */
-void reportSemanticError(const char* msg);  /* Report a semantic error */
+void  initSemantic();
+int   analyzeProgram(ASTNode* root);    /* returns 1 if clean, 0 if errors */
+void  analyzeStmt(ASTNode* node);
+void  analyzeExpr(ASTNode* node);
+
+/* Returns the inferred type string of an expression node ("int", "float",
+ * "char", "bool", "nothing", or "unknown" if it cannot be determined). */
+const char* getExprType(ASTNode* node);
+
+void  reportSemanticError(const char* msg);
 
 #endif

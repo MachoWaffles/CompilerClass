@@ -1,0 +1,50 @@
+// Project 3 test: functions, new types, type checking
+
+// Global variable (accessible from any function)
+int globalCounter;
+
+// A simple function that takes two ints and returns their sum
+function add(int a, int b) returns int
+{
+    int result = a + b;
+    return result;
+}
+
+// A function that demonstrates the float type
+function scale(float x) returns float
+{
+    float doubled = x + x;
+    return doubled;
+}
+
+// A function with a bool parameter and char variable
+function describeChar(char c, bool loud) returns nothing
+{
+    char code = c;
+    print(code);
+    return;
+}
+
+// Required entry point — every program must declare Master()
+function Master() returns nothing
+{
+    globalCounter = 0;
+
+    // Call add() and store the result
+    int sum = add(3, 4);
+    print(sum);
+
+    // Use a float literal
+    float pi = 3.14;
+
+    // Use a bool literal
+    bool flag = true;
+
+    // Use a char literal
+    char letter = 'A';
+
+    // Call describeChar with the letter and the flag
+    describeChar(letter, flag);
+
+    return;
+}

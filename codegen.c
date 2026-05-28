@@ -4,70 +4,76 @@
 #include "codegen.h"
 #include "symtab.h"
 
-FILE* output;
+static FILE* output;
 
-/* Track temporary register usage */
-int tempUsed[8] = {0};
+/* ── TEMPORARY REGISTER POOL ($t0-$t7) ──────────────────────────────────── */
+static int tempUsed[8] = {0};
 
-/* Allocate next available temp register */
-int getNextTemp() {
+static int getNextTemp() {
     for (int i = 0; i < 8; i++) {
         if (!tempUsed[i]) {
             tempUsed[i] = 1;
-
-            printf("[TEMP DEBUG] Using temporary register $t%d\n", i);
-
             return i;
         }
     }
 
-    /* All 8 registers are in use — this means an expression is nested too deeply */
-    fprintf(stderr, "\n❌ Internal Error: Out of temporary registers ($t0-$t7)\n");
-    fprintf(stderr, "   All 8 temporary registers are simultaneously in use\n");
-    fprintf(stderr, "   This is caused by a deeply nested or very complex expression\n");
-    fprintf(stderr, "   💡 Suggestion: Break the expression into smaller steps using\n");
-    fprintf(stderr, "      intermediate variables, e.g. instead of:\n");
-    fprintf(stderr, "      x = a + b + c + d + e + f + g + h + i;\n");
-    fprintf(stderr, "      use: int tmp = a + b + c + d;\n");
-    fprintf(stderr, "           x = tmp + e + f + g + h + i;\n\n");
+    fprintf(stderr,
+            "\n❌ Internal Error: Out of temporary registers ($t0-$t7)\n");
     exit(1);
 }
 
-/* Free a temp register */
-void free_temp(char *temp) {
-    if (temp == NULL) return;
-
-    if (temp[0] == '$' && temp[1] == 't') {
-        int reg = atoi(&temp[2]);
-
-        if (reg >= 0 && reg < 8) {
-            tempUsed[reg] = 0;
-
-            printf("[TEMP DEBUG] Freed temporary register $t%d\n", reg);
-        }
-    }
+static void free_temp(int r) {
+    if (r >= 0 && r < 8)
+        tempUsed[r] = 0;
 }
 
-/* Reset all temp registers */
-void resetTemps() {
-    printf("[TEMP DEBUG] Resetting all temporary registers\n");
-
-    for (int i = 0; i < 8; i++) {
+static void resetTemps() {
+    for (int i = 0; i < 8; i++)
         tempUsed[i] = 0;
-    }
 }
 
-int genExpr(ASTNode* node) {
-    if (!node) return -1;
+/* ── FORWARD DECLARATIONS ───────────────────────────────────────────────── */
+static int  genExpr(ASTNode* node);
+static void genStmt(ASTNode* node);
 
-    switch(node->type) {
+/* ── EXPRESSION CODE GENERATION ─────────────────────────────────────────── */
+static int genExpr(ASTNode* node) {
+    if (!node)
+        return -1;
+
+    switch (node->type) {
 
         case NODE_NUM: {
-            int reg = getNextTemp();
+            int r = getNextTemp();
+            fprintf(output, "    li $t%d, %d\n", r, node->data.num);
+            return r;
+        }
 
-            fprintf(output, "    li $t%d, %d\n", reg, node->data.num);
+        case NODE_FLOAT_LIT: {
+            int r = getNextTemp();
 
-            return reg;
+            union {
+                float f;
+                int i;
+            } cvt;
+
+            cvt.f = node->data.fval;
+
+            fprintf(output,
+                    "    # float literal %g (IEEE bits 0x%08X)\n",
+                    node->data.fval,
+                    (unsigned)cvt.i);
+
+            fprintf(output, "    li $t%d, %d\n", r, cvt.i);
+
+            return r;
+        }
+
+        case NODE_CHAR_LIT:
+        case NODE_BOOL_LIT: {
+            int r = getNextTemp();
+            fprintf(output, "    li $t%d, %d\n", r, node->data.num);
+            return r;
         }
 
         case NODE_VAR: {
@@ -75,50 +81,129 @@ int genExpr(ASTNode* node) {
 
             if (offset == -1) {
                 fprintf(stderr,
-                        "\n❌ Code Generation Error: Variable '%s' not declared\n",
-                        node->data.name);
-                fprintf(stderr,
-                        "   💡 Suggestion: Declare the variable before using it: 'int %s;'\n\n",
+                        "\n❌ Code Generation Error: Variable '%s' not found\n",
                         node->data.name);
                 exit(1);
             }
 
-            int reg = getNextTemp();
+            int r = getNextTemp();
 
-            fprintf(output, "    lw $t%d, %d($sp)\n", reg, offset);
+            /* Use the variable's own scope, not the current compilation scope.
+             * Globals always live in main's 400-byte $sp frame; locals use $fp. */
+            if (isVarGlobal(node->data.name))
+                fprintf(output, "    lw $t%d, %d($sp)\n", r, offset);
+            else
+                fprintf(output, "    lw $t%d, %d($fp)\n", r, offset);
 
-            return reg;
+            return r;
         }
 
         case NODE_BINOP: {
-            /* Division by zero: catch compile-time constant division by 0.
-             * The language currently only supports '+', but this guard is in place
-             * so the check fires immediately if '/' is ever added to the grammar. */
-            if (node->data.binop.op == '/') {
-                if (node->data.binop.right &&
-                    node->data.binop.right->type == NODE_NUM &&
-                    node->data.binop.right->data.num == 0) {
-                    fprintf(stderr, "\n❌ Code Generation Error: Division by zero detected\n");
-                    fprintf(stderr, "   Dividing by the constant 0 produces undefined behavior\n");
-                    fprintf(stderr, "   💡 Suggestion: Check your divisor — it must not be 0\n\n");
-                    exit(1);
-                }
+
+            if (node->data.binop.op == '/' &&
+                node->data.binop.right &&
+                node->data.binop.right->type == NODE_NUM &&
+                node->data.binop.right->data.num == 0) {
+
+                fprintf(stderr,
+                        "\n❌ Code Generation Error: Division by zero\n");
+                exit(1);
             }
 
-            int leftReg = genExpr(node->data.binop.left);
-            int rightReg = genExpr(node->data.binop.right);
+            int lR = genExpr(node->data.binop.left);
+            int rR = genExpr(node->data.binop.right);
+
+            switch (node->data.binop.op) {
+
+                case '+':
+                    fprintf(output,
+                            "    add $t%d, $t%d, $t%d\n",
+                            lR, lR, rR);
+                    break;
+
+                case '-':
+                    fprintf(output,
+                            "    sub $t%d, $t%d, $t%d\n",
+                            lR, lR, rR);
+                    break;
+
+                case '*':
+                    fprintf(output,
+                            "    mul $t%d, $t%d, $t%d\n",
+                            lR, lR, rR);
+                    break;
+
+                case '/':
+                    fprintf(output,
+                            "    div $t%d, $t%d\n",
+                            lR, rR);
+                    fprintf(output,
+                            "    mflo $t%d\n",
+                            lR);
+                    break;
+
+                default:
+                    fprintf(stderr,
+                            "\n❌ Unsupported binary operator '%c'\n",
+                            node->data.binop.op);
+                    exit(1);
+            }
+
+            free_temp(rR);
+
+            return lR;
+        }
+
+        case NODE_FUNC_CALL: {
+
+            int argRegs[4];
+            int argCount = 0;
+
+            ASTNode* arg = node->data.funcCall.args;
+
+            while (arg && argCount < 4) {
+
+                ASTNode* argExpr = NULL;
+
+                if (arg->type == NODE_STMT_LIST) {
+                    argExpr = arg->data.stmtlist.stmt;
+                    arg     = arg->data.stmtlist.next;
+                }
+                else {
+                    argExpr = arg;
+                    arg     = NULL;
+                }
+
+                if (!argExpr)
+                    break;
+
+                argRegs[argCount] = genExpr(argExpr);
+
+                fprintf(output,
+                        "    move $a%d, $t%d\n",
+                        argCount,
+                        argRegs[argCount]);
+
+                argCount++;
+            }
+
+            /* Prefix user-defined function labels with '_' to avoid clashes
+             * with MIPS instruction keywords (e.g. a function named 'add'
+             * would collide with the 'add' instruction in SPIM's parser). */
+            fprintf(output,
+                    "    jal _%s\n",
+                    node->data.funcCall.name);
+
+            for (int i = 0; i < argCount; i++)
+                free_temp(argRegs[i]);
+
+            int retR = getNextTemp();
 
             fprintf(output,
-                    "    add $t%d, $t%d, $t%d\n",
-                    leftReg,
-                    leftReg,
-                    rightReg);
+                    "    move $t%d, $v0\n",
+                    retR);
 
-            char tempName[10];
-            sprintf(tempName, "$t%d", rightReg);
-            free_temp(tempName);
-
-            return leftReg;
+            return retR;
         }
 
         default:
@@ -126,226 +211,441 @@ int genExpr(ASTNode* node) {
     }
 }
 
-void genStmt(ASTNode* node) {
-    if (!node) return;
+/* ── COUNT LOCALS ───────────────────────────────────────────────────────── */
+static int countLocals(ASTNode* node) {
 
-    switch(node->type) {
+    if (!node)
+        return 0;
 
-        case NODE_DECL: {
-            int offset = addVar(node->data.decl.name,
-                                node->data.decl.varType);
+    if (node->type == NODE_DECL ||
+        node->type == NODE_DEC_ASSIGN)
+        return 1;
 
-            if (offset == -1) {
-                fprintf(stderr,
-                        "\n❌ Code Generation Error: Variable '%s' already declared\n",
-                        node->data.decl.name);
-                fprintf(stderr,
-                        "   💡 Suggestion: Each variable name must be unique within the program\n\n");
-                exit(1);
-            }
+    if (node->type == NODE_STMT_LIST)
+        return countLocals(node->data.stmtlist.stmt)
+             + countLocals(node->data.stmtlist.next);
+
+    return 0;
+}
+
+/* ── FUNCTION CODE GENERATION ───────────────────────────────────────────── */
+static void genFuncDecl(ASTNode* node) {
+
+    const char* fname = node->data.funcDecl.name;
+
+    int frameSize = 8;
+
+    ASTNode* p = node->data.funcDecl.params;
+
+    while (p) {
+
+        if (p->type == NODE_PARAM_DECL) {
+            frameSize += 4;
+            p = NULL;
+        }
+        else if (p->type == NODE_STMT_LIST) {
+
+            if (p->data.stmtlist.stmt &&
+                p->data.stmtlist.stmt->type == NODE_PARAM_DECL)
+                frameSize += 4;
+
+            p = p->data.stmtlist.next;
+        }
+        else {
+            break;
+        }
+    }
+
+    frameSize += countLocals(node->data.funcDecl.body) * 4;
+
+    /* User-defined labels are prefixed with '_' to prevent conflicts with
+     * MIPS instruction mnemonics (e.g. a function called 'add' would
+     * collide with the 'add' instruction keyword in SPIM's assembler). */
+    fprintf(output, "\n# Function: %s\n", fname);
+    fprintf(output, "_%s:\n", fname);
+
+    fprintf(output,
+            "    addi $sp, $sp, -%d\n",
+            frameSize);
+
+    fprintf(output,
+            "    sw   $ra, %d($sp)\n",
+            frameSize - 4);
+
+    fprintf(output,
+            "    sw   $fp, %d($sp)\n",
+            frameSize - 8);
+
+    fprintf(output,
+            "    move $fp, $sp\n\n");
+
+    /* Parameters */
+
+    int paramIdx = 0;
+
+    ASTNode* params = node->data.funcDecl.params;
+
+    while (params) {
+
+        ASTNode* paramNode = NULL;
+
+        if (params->type == NODE_PARAM_DECL) {
+            paramNode = params;
+            params = NULL;
+        }
+        else if (params->type == NODE_STMT_LIST) {
+            paramNode = params->data.stmtlist.stmt;
+            params = params->data.stmtlist.next;
+        }
+        else {
+            break;
+        }
+
+        if (paramNode &&
+            paramNode->type == NODE_PARAM_DECL &&
+            paramIdx < 4) {
+
+            int offset =
+                addVar(paramNode->data.param.name,
+                       paramNode->data.param.paramType);
 
             fprintf(output,
-                    "    # Declared %s %s at offset %d\n",
-                    node->data.decl.varType,
-                    node->data.decl.name,
-                    offset);
+                    "    sw $a%d, %d($fp)   # param '%s'\n",
+                    paramIdx,
+                    offset,
+                    paramNode->data.param.name);
+
+            paramIdx++;
+        }
+    }
+
+    genStmt(node->data.funcDecl.body);
+
+    fprintf(output, "\n    # Epilogue\n");
+
+    fprintf(output,
+            "    lw   $ra, %d($sp)\n",
+            frameSize - 4);
+
+    fprintf(output,
+            "    lw   $fp, %d($sp)\n",
+            frameSize - 8);
+
+    fprintf(output,
+            "    addi $sp, $sp, %d\n",
+            frameSize);
+
+    fprintf(output,
+            "    jr   $ra\n");
+
+    fprintf(output,
+            "# End _%s\n",
+            fname);
+
+    resetTemps();
+}
+
+/* ── STATEMENT CODE GENERATION ──────────────────────────────────────────── */
+static void genStmt(ASTNode* node) {
+
+    if (!node)
+        return;
+
+    switch (node->type) {
+
+        case NODE_DECL: {
+
+            /* IMPORTANT:
+               Globals are already pre-registered.
+               Only locals should add symbols here.
+            */
+
+            if (strcmp(getCurrentScope(), "global") != 0) {
+
+                int offset =
+                    addVar(node->data.decl.name,
+                           node->data.decl.varType);
+
+                if (offset == -1) {
+
+                    fprintf(stderr,
+                            "\n❌ Code Generation Error: Variable '%s' already declared\n",
+                            node->data.decl.name);
+
+                    exit(1);
+                }
+
+                fprintf(output,
+                        "    # Declare %s %s at offset %d\n",
+                        node->data.decl.varType,
+                        node->data.decl.name,
+                        offset);
+            }
 
             break;
         }
 
         case NODE_ASSIGN: {
+
             int offset = getVarOffset(node->data.assign.var);
 
             if (offset == -1) {
+
                 fprintf(stderr,
                         "\n❌ Code Generation Error: Variable '%s' not declared\n",
                         node->data.assign.var);
-                fprintf(stderr,
-                        "   💡 Suggestion: Declare the variable before assigning to it: 'int %s;'\n\n",
-                        node->data.assign.var);
+
                 exit(1);
             }
 
-            int reg = genExpr(node->data.assign.value);
+            int r = genExpr(node->data.assign.value);
+
+            /* Use the variable's own scope to pick the correct base register.
+             * A global written from inside a function still lives on $sp. */
+            if (isVarGlobal(node->data.assign.var))
+                fprintf(output,
+                        "    sw $t%d, %d($sp)\n",
+                        r, offset);
+            else
+                fprintf(output,
+                        "    sw $t%d, %d($fp)\n",
+                        r, offset);
+
+            free_temp(r);
+            resetTemps();
+
+            break;
+        }
+
+        case NODE_DEC_ASSIGN: {
+
+            int offset;
+
+            if (strcmp(getCurrentScope(), "global") == 0) {
+
+                /* already registered */
+                offset =
+                    getVarOffset(node->data.DecAssignNode.name);
+            }
+            else {
+
+                offset =
+                    addVar(node->data.DecAssignNode.name,
+                           node->data.DecAssignNode.varType);
+
+                if (offset == -1) {
+
+                    fprintf(stderr,
+                            "\n❌ Code Generation Error: Variable '%s' already declared\n",
+                            node->data.DecAssignNode.name);
+
+                    exit(1);
+                }
+            }
 
             fprintf(output,
-                    "    sw $t%d, %d($sp)\n",
-                    reg,
-                    offset);
+                    "    # %s %s\n",
+                    node->data.DecAssignNode.varType,
+                    node->data.DecAssignNode.name);
 
-            char tempName[10];
-            sprintf(tempName, "$t%d", reg);
-            free_temp(tempName);
+            int r =
+                genExpr(node->data.DecAssignNode.value);
 
+            const char* scope = getCurrentScope();
+
+            if (strcmp(scope, "global") == 0)
+                fprintf(output,
+                        "    sw $t%d, %d($sp)\n",
+                        r, offset);
+            else
+                fprintf(output,
+                        "    sw $t%d, %d($fp)\n",
+                        r, offset);
+
+            free_temp(r);
             resetTemps();
 
             break;
         }
 
         case NODE_PRINT: {
-            int reg = genExpr(node->data.expr);
 
-            fprintf(output, "    # Print integer\n");
-            fprintf(output, "    move $a0, $t%d\n", reg);
-            fprintf(output, "    li $v0, 1\n");
-            fprintf(output, "    syscall\n");
+            int r = genExpr(node->data.expr);
 
-            fprintf(output, "    # Print newline\n");
-            fprintf(output, "    li $v0, 11\n");
-            fprintf(output, "    li $a0, 10\n");
-            fprintf(output, "    syscall\n");
+            fprintf(output,
+                    "    move $a0, $t%d\n",
+                    r);
 
-            char tempName[10];
-            sprintf(tempName, "$t%d", reg);
-            free_temp(tempName);
+            fprintf(output,
+                    "    li   $v0, 1\n");
 
+            fprintf(output,
+                    "    syscall\n");
+
+            fprintf(output,
+                    "    li   $v0, 11\n");
+
+            fprintf(output,
+                    "    li   $a0, 10\n");
+
+            fprintf(output,
+                    "    syscall\n");
+
+            free_temp(r);
             resetTemps();
 
             break;
         }
 
+        case NODE_FUNC_CALL: {
+
+            int r = genExpr(node);
+
+            free_temp(r);
+            resetTemps();
+
+            break;
+        }
+
+        case NODE_RETURN: {
+
+            if (node->data.returnExpr) {
+
+                int r = genExpr(node->data.returnExpr);
+
+                fprintf(output,
+                        "    move $v0, $t%d\n",
+                        r);
+
+                free_temp(r);
+            }
+
+            break;
+        }
+
         case NODE_STMT_LIST:
+
             genStmt(node->data.stmtlist.stmt);
             genStmt(node->data.stmtlist.next);
-            break;
 
-        case NODE_DEC_ASSIGN: {
-            int offset = addVar(node->data.DecAssignNode.name, node->data.DecAssignNode.varType);
-            if (offset == -1) {
-                fprintf(stderr,
-                        "\n❌ Code Generation Error: Variable '%s' already declared\n",
-                        node->data.DecAssignNode.name);
-                fprintf(stderr,
-                        "   💡 Suggestion: Each variable name must be unique within the program\n\n");
-                exit(1);
-            }
-            fprintf(output, "    # Declared %s %s at offset %d\n",
-                    node->data.DecAssignNode.varType,
-                    node->data.DecAssignNode.name,
-                    offset);
-            int reg = genExpr(node->data.DecAssignNode.value);
-            fprintf(output, "    sw $t%d, %d($sp)\n", reg, offset);
-            char tempName[10];
-            sprintf(tempName, "$t%d", reg);
-            free_temp(tempName);
-            resetTemps();
             break;
-        }
 
         default:
             break;
     }
 }
 
-/* --- Pre-pass: collect all variable names that are READ in expressions ---
- * "Read" means appearing as a NODE_VAR in an expression context.
- * Variables that are only declared and assigned but never read are unused. */
-static char* usedVarNames[100];
-static int   usedVarCount = 0;
-
-static void collectUsedVars(ASTNode* node) {
+/* ── RECURSIVE FUNCTION EMITTER ─────────────────────────────────────────── */
+/* Walk the full (possibly deeply-nested) top-level tree and emit MIPS code
+ * for every NODE_FUNC_DECL found.  The tree is left-leaning because the
+ * grammar rule is left-recursive, so the flat while-loop used previously
+ * only ever reached the last item via .next and skipped all others in .stmt.
+ */
+static void genAllFunctions(ASTNode* node) {
     if (!node) return;
-    switch (node->type) {
-        case NODE_VAR: {
-            /* Record this variable as used (read), avoid duplicates */
-            for (int i = 0; i < usedVarCount; i++) {
-                if (strcmp(usedVarNames[i], node->data.name) == 0) return;
-            }
-            if (usedVarCount < 100) {
-                usedVarNames[usedVarCount++] = node->data.name;
-            }
-            break;
-        }
-        case NODE_BINOP:
-            collectUsedVars(node->data.binop.left);
-            collectUsedVars(node->data.binop.right);
-            break;
-        case NODE_ASSIGN:
-            collectUsedVars(node->data.assign.value);
-            break;
-        case NODE_PRINT:
-            collectUsedVars(node->data.expr);
-            break;
-        case NODE_DEC_ASSIGN:
-            collectUsedVars(node->data.DecAssignNode.value);
-            break;
-        case NODE_STMT_LIST:
-            collectUsedVars(node->data.stmtlist.stmt);
-            collectUsedVars(node->data.stmtlist.next);
-            break;
-        default:
-            break;
+    if (node->type == NODE_STMT_LIST) {
+        genAllFunctions(node->data.stmtlist.stmt);
+        genAllFunctions(node->data.stmtlist.next);
+        return;
+    }
+    if (node->type == NODE_FUNC_DECL) {
+        setScope(node->data.funcDecl.name);
+        genFuncDecl(node);
+        setScope("global");
     }
 }
 
+/* ── RECURSIVE TOP-LEVEL STATEMENT EMITTER ──────────────────────────────── */
+/* Walk the full tree and call genStmt() for every non-function top-level
+ * node.  Function declarations are skipped here (handled by genAllFunctions).
+ */
+static void genTopLevelStmts(ASTNode* node) {
+    if (!node) return;
+    if (node->type == NODE_STMT_LIST) {
+        genTopLevelStmts(node->data.stmtlist.stmt);
+        genTopLevelStmts(node->data.stmtlist.next);
+        return;
+    }
+    if (node->type != NODE_FUNC_DECL)
+        genStmt(node);
+}
+
+/* ── PRE-REGISTER GLOBALS ───────────────────────────────────────────────── */
+static void preRegisterGlobals(ASTNode* node) {
+
+    if (!node)
+        return;
+
+    if (node->type == NODE_STMT_LIST) {
+
+        preRegisterGlobals(node->data.stmtlist.stmt);
+        preRegisterGlobals(node->data.stmtlist.next);
+
+        return;
+    }
+
+    if (node->type == NODE_DECL) {
+
+        addVar(node->data.decl.name,
+               node->data.decl.varType);
+    }
+    else if (node->type == NODE_DEC_ASSIGN) {
+
+        addVar(node->data.DecAssignNode.name,
+               node->data.DecAssignNode.varType);
+    }
+}
+
+/* ── ENTRY POINT ────────────────────────────────────────────────────────── */
 void generateMIPS(ASTNode* root, const char* filename) {
+
     output = fopen(filename, "w");
 
     if (!output) {
+
         fprintf(stderr,
-                "\n❌ File Error: Cannot open output file '%s'\n",
+                "\n❌ Cannot open output file '%s'\n\n",
                 filename);
-        fprintf(stderr,
-                "   💡 Suggestion: Check that the directory exists and you have write permission\n\n");
+
         exit(1);
     }
 
     initSymTab();
 
-    fprintf(output, ".data\n");
-    fprintf(output, "\n.text\n");
-    fprintf(output, ".globl main\n");
+    /* Register globals BEFORE function generation */
+    preRegisterGlobals(root);
+
+    fprintf(output, ".data\n\n");
+    fprintf(output, ".text\n\n");
+
+    /* Generate all function subroutines (recursive walk handles the
+     * left-leaning nested STMT_LIST tree built by the left-recursive
+     * grammar rule).
+     */
+    genAllFunctions(root);
+
+    /* Main entry — allocates a global stack frame, runs any top-level
+     * non-function statements (e.g. global DEC_ASSIGN initialisers),
+     * then calls Master().
+     */
+    fprintf(output, "\n.globl main\n");
     fprintf(output, "main:\n");
 
-    fprintf(output, "    # Allocate stack space\n");
-    fprintf(output, "    addi $sp, $sp, -400\n\n");
+    fprintf(output,
+            "    addi $sp, $sp, -400\n\n");
 
-    genStmt(root);
+    genTopLevelStmts(root);
 
-    /* --- Stack overflow check ---
-     * The stack was allocated as 400 bytes. Each int variable uses 4 bytes,
-     * so the program supports at most 100 variables. If more were declared,
-     * variables will have silently overwritten each other in memory. */
-    int stackUsed = getStackUsage();
-    if (stackUsed > 400) {
-        fprintf(stderr, "\n⚠ Warning: Stack overflow in generated code\n");
-        fprintf(stderr, "   Program declared %d variables requiring %d bytes,\n",
-                getVarCount(), stackUsed);
-        fprintf(stderr, "   but only 400 bytes of stack were allocated\n");
-        fprintf(stderr, "   Variables will have overwritten each other in memory\n");
-        fprintf(stderr, "   💡 Suggestion: Reduce the number of variables (max 100 int variables)\n\n");
-    }
+    fprintf(output, "\n    jal _Master\n");
 
-    /* --- Unused variable warnings ---
-     * Collect every variable that is actually read in an expression, then
-     * compare against every declared variable. Any declared variable that
-     * never appears in a read context gets a warning. */
-    usedVarCount = 0;
-    collectUsedVars(root);
+    fprintf(output,
+            "\n    addi $sp, $sp, 400\n");
 
-    int declaredCount = getVarCount();
-    for (int i = 0; i < declaredCount; i++) {
-        char* varName = getVarNameAt(i);
-        if (!varName) continue;
+    fprintf(output,
+            "    li   $v0, 10\n");
 
-        int found = 0;
-        for (int j = 0; j < usedVarCount; j++) {
-            if (strcmp(varName, usedVarNames[j]) == 0) {
-                found = 1;
-                break;
-            }
-        }
-        if (!found) {
-            fprintf(stderr, "\n⚠ Warning: Variable '%s' is declared but never used\n", varName);
-            fprintf(stderr, "   💡 Suggestion: Remove the declaration or use '%s' in an expression\n\n",
-                    varName);
-        }
-    }
-
-    fprintf(output, "\n    # Exit program\n");
-    fprintf(output, "    addi $sp, $sp, 400\n");
-    fprintf(output, "    li $v0, 10\n");
-    fprintf(output, "    syscall\n");
+    fprintf(output,
+            "    syscall\n");
 
     fclose(output);
 }

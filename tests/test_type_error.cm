@@ -1,0 +1,12 @@
+// test_type_error.cm — type checking: assigning a float expression to an int variable
+// Expected: semantic error — cannot narrow float to int
+
+function Master() returns nothing
+{
+    int x;
+    float y;
+    y = 3.14;
+    x = y;       // ERROR: float cannot be assigned to int (narrowing)
+    print(x);
+    return;
+}
