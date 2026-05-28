@@ -116,7 +116,7 @@ int isVarDeclared(char* name) {
 }
 
 /* Returns the declared type of a variable, or NULL if not found. */
-char* getVarType(char* name) {
+const char* getVarType(char* name) {
     /* Current scope first */
     for (int i = 0; i < symtab.count; i++) {
         if (strcmp(symtab.vars[i].name,  name) == 0 &&
@@ -151,6 +151,7 @@ void printSymTab() {
     }
     printf("==========================\n\n");
 }
+
 
 /* ── READ-ONLY ACCESSORS ─────────────────────────────────────────────────── */
 int getVarCount() { return symtab.count; }

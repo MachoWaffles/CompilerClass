@@ -1,24 +1,30 @@
 // test.cm — basic integer arithmetic, declaration, assignment, print
 // Updated for Project 3: code lives inside Master()
 
-int globalX;   // global variable — accessible from any function
+float globalX;   // global variable — accessible from any function
 
 function Master() returns nothing
 {
-    int x;
+    float x;
     int y;
 
-    x = 10;
+    bool s = true;
+
+    x = 10.0;
     y = 20;
-    int z = x + y;
-    print(z);       // 30
 
-    x = z * 0;
-    print(x);       // 35
+    char c = 'g';
+    float z = (y/x*10) / (3.0 * y);
+    print(z);       // 0.33333334
 
-    y = x / y;
-    print(y);       // 85
+    x = z * 2;
+    print(x);       // 0.66666668
 
+    print(y);       // 20
+
+    print(s);       // true
+
+    print(c + x);
     globalX = x;
     return;
 }

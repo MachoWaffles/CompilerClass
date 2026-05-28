@@ -294,6 +294,8 @@ expr:
 
     | expr '/' expr      { $$ = createBinOp('/', $1, $3); }
     
+    | '(' expr ')' {$$ = $2; }
+
     ;
 
 /* ── ARGUMENT LIST (for function calls) ───────────────────────────────────── */

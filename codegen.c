@@ -32,9 +32,52 @@ static void resetTemps() {
         tempUsed[i] = 0;
 }
 
+/* ── UNIQUE LABEL COUNTER ───────────────────────────────────────────────── */
+static int printLabelCount = 0;
+
 /* ── FORWARD DECLARATIONS ───────────────────────────────────────────────── */
-static int  genExpr(ASTNode* node);
-static void genStmt(ASTNode* node);
+static int         genExpr(ASTNode* node);
+static void        genStmt(ASTNode* node);
+static const char* inferExprType(ASTNode* node);
+
+/* ── TYPE INFERENCE ──────────────────────────────────────────────────────
+ * Best-effort: walks the expression and returns the most likely type string.
+ * Falls back to "int" for anything it can't determine.
+ */
+static const char* inferExprType(ASTNode* node) {
+    if (!node) return "int";
+
+    switch (node->type) {
+        case NODE_FLOAT_LIT: return "float";
+        case NODE_BOOL_LIT:  return "bool";
+        case NODE_CHAR_LIT:  return "char";
+        case NODE_NUM:       return "int";
+
+        case NODE_VAR: {
+            const char* t = getVarType(node->data.name);
+            fprintf(stderr, "DEBUG inferExprType: var '%s' -> type '%s' (scope: %s)\n",
+                    node->data.name, t ? t : "NULL", getCurrentScope());
+            return t ? t : "int";
+        }
+
+        case NODE_BINOP: {
+            /* If either operand is float, the result is float */
+            const char* lType = inferExprType(node->data.binop.left);
+            const char* rType = inferExprType(node->data.binop.right);
+            if (strcmp(lType, "float") == 0 || strcmp(rType, "float") == 0)
+                return "float";
+            return lType;
+        }
+
+        case NODE_FUNC_CALL:
+            /* We don't track return types through the symbol table yet,
+             * so default to int — extend this when return types are stored. */
+            return "int";
+
+        default:
+            return "int";
+    }
+}
 
 /* ── EXPRESSION CODE GENERATION ─────────────────────────────────────────── */
 static int genExpr(ASTNode* node) {
@@ -54,7 +97,7 @@ static int genExpr(ASTNode* node) {
 
             union {
                 float f;
-                int i;
+                int   i;
             } cvt;
 
             cvt.f = node->data.fval;
@@ -88,8 +131,6 @@ static int genExpr(ASTNode* node) {
 
             int r = getNextTemp();
 
-            /* Use the variable's own scope, not the current compilation scope.
-             * Globals always live in main's 400-byte $sp frame; locals use $fp. */
             if (isVarGlobal(node->data.name))
                 fprintf(output, "    lw $t%d, %d($sp)\n", r, offset);
             else
@@ -110,43 +151,83 @@ static int genExpr(ASTNode* node) {
                 exit(1);
             }
 
+            /* Determine if this is a float operation */
+            const char* lType = inferExprType(node->data.binop.left);
+            const char* rType = inferExprType(node->data.binop.right);
+            int isFloat = (strcmp(lType, "float") == 0 || strcmp(rType, "float") == 0);
+
             int lR = genExpr(node->data.binop.left);
             int rR = genExpr(node->data.binop.right);
 
-            switch (node->data.binop.op) {
+            if (isFloat) {
+                /* Move bits into float registers, converting ints if needed */
+                fprintf(output, "    mtc1 $t%d, $f0\n", lR);
+                if (strcmp(lType, "int") == 0)
+                    fprintf(output, "    cvt.s.w $f0, $f0\n");
 
-                case '+':
-                    fprintf(output,
-                            "    add $t%d, $t%d, $t%d\n",
-                            lR, lR, rR);
-                    break;
+                fprintf(output, "    mtc1 $t%d, $f2\n", rR);
+                if (strcmp(rType, "int") == 0)
+                    fprintf(output, "    cvt.s.w $f2, $f2\n");
 
-                case '-':
-                    fprintf(output,
-                            "    sub $t%d, $t%d, $t%d\n",
-                            lR, lR, rR);
-                    break;
+                switch (node->data.binop.op) {
+                    case '+':
+                        fprintf(output, "    add.s $f0, $f0, $f2\n");
+                        break;
+                    case '-':
+                        fprintf(output, "    sub.s $f0, $f0, $f2\n");
+                        break;
+                    case '*':
+                        fprintf(output, "    mul.s $f0, $f0, $f2\n");
+                        break;
+                    case '/':
+                        fprintf(output, "    div.s $f0, $f0, $f2\n");
+                        break;
+                    default:
+                        fprintf(stderr,
+                                "\n❌ Unsupported binary operator '%c'\n",
+                                node->data.binop.op);
+                        exit(1);
+                }
 
-                case '*':
-                    fprintf(output,
-                            "    mul $t%d, $t%d, $t%d\n",
-                            lR, lR, rR);
-                    break;
+                /* Move result bits back to integer register */
+                fprintf(output, "    mfc1 $t%d, $f0\n", lR);
+            }
+            else {
+                switch (node->data.binop.op) {
 
-                case '/':
-                    fprintf(output,
-                            "    div $t%d, $t%d\n",
-                            lR, rR);
-                    fprintf(output,
-                            "    mflo $t%d\n",
-                            lR);
-                    break;
+                    case '+':
+                        fprintf(output,
+                                "    add $t%d, $t%d, $t%d\n",
+                                lR, lR, rR);
+                        break;
 
-                default:
-                    fprintf(stderr,
-                            "\n❌ Unsupported binary operator '%c'\n",
-                            node->data.binop.op);
-                    exit(1);
+                    case '-':
+                        fprintf(output,
+                                "    sub $t%d, $t%d, $t%d\n",
+                                lR, lR, rR);
+                        break;
+
+                    case '*':
+                        fprintf(output,
+                                "    mul $t%d, $t%d, $t%d\n",
+                                lR, lR, rR);
+                        break;
+
+                    case '/':
+                        fprintf(output,
+                                "    div $t%d, $t%d\n",
+                                lR, rR);
+                        fprintf(output,
+                                "    mflo $t%d\n",
+                                lR);
+                        break;
+
+                    default:
+                        fprintf(stderr,
+                                "\n❌ Unsupported binary operator '%c'\n",
+                                node->data.binop.op);
+                        exit(1);
+                }
             }
 
             free_temp(rR);
@@ -187,9 +268,6 @@ static int genExpr(ASTNode* node) {
                 argCount++;
             }
 
-            /* Prefix user-defined function labels with '_' to avoid clashes
-             * with MIPS instruction keywords (e.g. a function named 'add'
-             * would collide with the 'add' instruction in SPIM's parser). */
             fprintf(output,
                     "    jal _%s\n",
                     node->data.funcCall.name);
@@ -258,9 +336,6 @@ static void genFuncDecl(ASTNode* node) {
 
     frameSize += countLocals(node->data.funcDecl.body) * 4;
 
-    /* User-defined labels are prefixed with '_' to prevent conflicts with
-     * MIPS instruction mnemonics (e.g. a function called 'add' would
-     * collide with the 'add' instruction keyword in SPIM's assembler). */
     fprintf(output, "\n# Function: %s\n", fname);
     fprintf(output, "_%s:\n", fname);
 
@@ -355,11 +430,6 @@ static void genStmt(ASTNode* node) {
 
         case NODE_DECL: {
 
-            /* IMPORTANT:
-               Globals are already pre-registered.
-               Only locals should add symbols here.
-            */
-
             if (strcmp(getCurrentScope(), "global") != 0) {
 
                 int offset =
@@ -400,8 +470,6 @@ static void genStmt(ASTNode* node) {
 
             int r = genExpr(node->data.assign.value);
 
-            /* Use the variable's own scope to pick the correct base register.
-             * A global written from inside a function still lives on $sp. */
             if (isVarGlobal(node->data.assign.var))
                 fprintf(output,
                         "    sw $t%d, %d($sp)\n",
@@ -422,8 +490,6 @@ static void genStmt(ASTNode* node) {
             int offset;
 
             if (strcmp(getCurrentScope(), "global") == 0) {
-
-                /* already registered */
                 offset =
                     getVarOffset(node->data.DecAssignNode.name);
             }
@@ -470,26 +536,48 @@ static void genStmt(ASTNode* node) {
 
         case NODE_PRINT: {
 
-            int r = genExpr(node->data.expr);
+            ASTNode* expr = node->data.expr;
 
-            fprintf(output,
-                    "    move $a0, $t%d\n",
-                    r);
+            /* Infer the type of the expression being printed */
+            const char* varType = inferExprType(expr);
 
-            fprintf(output,
-                    "    li   $v0, 1\n");
+            int r = genExpr(expr);
 
-            fprintf(output,
-                    "    syscall\n");
+            if (strcmp(varType, "float") == 0) {
+                /* Move raw IEEE bits from integer reg into float reg, then print */
+                fprintf(output, "    mtc1 $t%d, $f12\n", r);
+                fprintf(output, "    li   $v0, 2\n");     /* print_float */
+                fprintf(output, "    syscall\n");
+            }
+            else if (strcmp(varType, "char") == 0) {
+                /* print_char — syscall 11, argument in $a0 */
+                fprintf(output, "    move $a0, $t%d\n", r);
+                fprintf(output, "    li   $v0, 11\n");    /* print_char */
+                fprintf(output, "    syscall\n");
+            }
+            else if (strcmp(varType, "bool") == 0) {
+                /* Branch to print "true" or "false" string */
+                int lbl = printLabelCount++;
+                fprintf(output, "    bne  $t%d, $zero, _print_true_%d\n", r, lbl);
+                fprintf(output, "    la   $a0, _str_false\n");
+                fprintf(output, "    j    _print_bool_done_%d\n", lbl);
+                fprintf(output, "_print_true_%d:\n", lbl);
+                fprintf(output, "    la   $a0, _str_true\n");
+                fprintf(output, "_print_bool_done_%d:\n", lbl);
+                fprintf(output, "    li   $v0, 4\n");     /* print_string */
+                fprintf(output, "    syscall\n");
+            }
+            else {
+                /* Default: int */
+                fprintf(output, "    move $a0, $t%d\n", r);
+                fprintf(output, "    li   $v0, 1\n");     /* print_int */
+                fprintf(output, "    syscall\n");
+            }
 
-            fprintf(output,
-                    "    li   $v0, 11\n");
-
-            fprintf(output,
-                    "    li   $a0, 10\n");
-
-            fprintf(output,
-                    "    syscall\n");
+            /* Print newline after every value */
+            fprintf(output, "    li   $v0, 11\n");
+            fprintf(output, "    li   $a0, 10\n");
+            fprintf(output, "    syscall\n");
 
             free_temp(r);
             resetTemps();
@@ -536,11 +624,6 @@ static void genStmt(ASTNode* node) {
 }
 
 /* ── RECURSIVE FUNCTION EMITTER ─────────────────────────────────────────── */
-/* Walk the full (possibly deeply-nested) top-level tree and emit MIPS code
- * for every NODE_FUNC_DECL found.  The tree is left-leaning because the
- * grammar rule is left-recursive, so the flat while-loop used previously
- * only ever reached the last item via .next and skipped all others in .stmt.
- */
 static void genAllFunctions(ASTNode* node) {
     if (!node) return;
     if (node->type == NODE_STMT_LIST) {
@@ -556,9 +639,6 @@ static void genAllFunctions(ASTNode* node) {
 }
 
 /* ── RECURSIVE TOP-LEVEL STATEMENT EMITTER ──────────────────────────────── */
-/* Walk the full tree and call genStmt() for every non-function top-level
- * node.  Function declarations are skipped here (handled by genAllFunctions).
- */
 static void genTopLevelStmts(ASTNode* node) {
     if (!node) return;
     if (node->type == NODE_STMT_LIST) {
@@ -615,19 +695,15 @@ void generateMIPS(ASTNode* root, const char* filename) {
     /* Register globals BEFORE function generation */
     preRegisterGlobals(root);
 
-    fprintf(output, ".data\n\n");
+    /* .data section — bool string literals */
+    fprintf(output, ".data\n");
+    fprintf(output, "_str_true:  .asciiz \"true\"\n");
+    fprintf(output, "_str_false: .asciiz \"false\"\n\n");
+
     fprintf(output, ".text\n\n");
 
-    /* Generate all function subroutines (recursive walk handles the
-     * left-leaning nested STMT_LIST tree built by the left-recursive
-     * grammar rule).
-     */
     genAllFunctions(root);
 
-    /* Main entry — allocates a global stack frame, runs any top-level
-     * non-function statements (e.g. global DEC_ASSIGN initialisers),
-     * then calls Master().
-     */
     fprintf(output, "\n.globl main\n");
     fprintf(output, "main:\n");
 
