@@ -286,17 +286,14 @@ expr:
 
     | expr '+' expr         { $$ = createBinOp('+', $1, $3); }
 
-    /* TODO: Subtraction — add TAC_SUB, MIPS 'sub' instruction, and semantic type check
-     * | expr '-' expr      { $$ = createBinOp('-', $1, $3); }
-     */
+    | expr '-' expr      { $$ = createBinOp('-', $1, $3); }
+    
 
-    /* TODO: Multiplication — add TAC_MUL, MIPS 'mul' instruction
-     * | expr '*' expr      { $$ = createBinOp('*', $1, $3); }
-     */
+    | expr '*' expr      { $$ = createBinOp('*', $1, $3); }
+    
 
-    /* TODO: Division — add TAC_DIV, MIPS 'div'/'mflo', and division-by-zero check
-     * | expr '/' expr      { $$ = createBinOp('/', $1, $3); }
-     */
+    | expr '/' expr      { $$ = createBinOp('/', $1, $3); }
+    
     ;
 
 /* ── ARGUMENT LIST (for function calls) ───────────────────────────────────── */

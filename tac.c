@@ -393,6 +393,15 @@ static void writeTACInstr(FILE* f, TACInstr* curr, int n) {
         case TAC_ADD:
             fprintf(f, "%s = %s + %s\n", curr->result, curr->arg1, curr->arg2);
             break;
+        case TAC_SUB:
+            fprintf(f, "%s = %s - %s\n", curr->result, curr->arg1, curr->arg2);
+            break;
+        case TAC_MUL:
+            fprintf(f, "%s = %s * %s\n", curr->result, curr->arg1, curr->arg2);
+            break;
+        case TAC_DIV:
+            fprintf(f, "%s = %s / %s\n", curr->result, curr->arg1, curr->arg2);
+            break;
         case TAC_ASSIGN:
             fprintf(f, "%s = %s\n", curr->result, curr->arg1);
             break;

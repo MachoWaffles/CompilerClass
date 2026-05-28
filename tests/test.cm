@@ -13,10 +13,10 @@ function Master() returns nothing
     int z = x + y;
     print(z);       // 30
 
-    x = z + 5;
+    x = z * 0;
     print(x);       // 35
 
-    y = x + y + z;
+    y = x / y;
     print(y);       // 85
 
     globalX = x;

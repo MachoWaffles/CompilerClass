@@ -16,7 +16,10 @@
 
 typedef enum {
     /* Existing arithmetic */
-    TAC_ADD,      /* result = arg1 + arg2 */
+    TAC_ADD,
+    TAC_SUB,
+    TAC_MUL,
+    TAC_DIV,      /* result = arg1 + arg2 */
     TAC_ASSIGN,   /* result = arg1 */
     TAC_PRINT,    /* print(arg1) */
     TAC_DECL,     /* declare variable 'result' of type arg1 */
