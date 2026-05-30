@@ -54,6 +54,7 @@ ASTNode* root = NULL;
 %type <node> program top_level_list top_level_item
 %type <node> stmt_list stmt decl assign expr print_stmt decAssign
 %type <node> func_decl param_decl_list param_decl arg_list return_stmt call_stmt
+%type <node> array_decl array_assign
 %type <str>  type
 
 /* ── OPERATOR PRECEDENCE ────────────────────────────────────────────────── */
@@ -92,6 +93,8 @@ stmt:
     | print_stmt
     | return_stmt
     | call_stmt
+    | array_decl
+    | array_assign
     ;
 
 /* ── TYPE NON-TERMINAL ───────────────────────────────────────────────────── */
@@ -146,6 +149,35 @@ decAssign:
         fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
         fprintf(stderr, "   Invalid or missing expression after '='\n");
         free($2);
+        $$ = NULL;
+        yyerrok;
+    }
+    ;
+/* ── ARRAY DECLARATION ───────────────────────────────────────────────────── */
+array_decl:
+    type ID '[' NUM ']' ';' {
+        $$ = createArrayDecl($1, $2, $4);
+        free($2);
+    }
+    | type ID '[' NUM ']' error {
+        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
+        fprintf(stderr, "   Missing semicolon after array declaration for '%s'\n", $2);
+        free($2);
+        $$ = NULL;
+        yyerrok;
+    }
+    ;
+
+/* ── ARRAY ASSIGNMENT ────────────────────────────────────────────────────── */
+array_assign:
+    ID '[' expr ']' '=' expr ';' {
+        $$ = createArrayAssign($1, $3, $6);
+        free($1);
+    }
+    | ID '[' expr ']' '=' expr error {
+        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
+        fprintf(stderr, "   Missing semicolon after array assignment for '%s'\n", $1);
+        free($1);
         $$ = NULL;
         yyerrok;
     }
@@ -283,6 +315,7 @@ expr:
     /* Function call in expression position: e.g., int x = add(a, b); */
     | ID '(' arg_list ')'  { $$ = createFuncCall($1, $3); free($1); }
     | ID '(' ')'           { $$ = createFuncCall($1, NULL); free($1); }
+    | ID '[' expr ']'        { $$ = createArrayAccess($1, $3); free($1); }
 
     | expr '+' expr         { $$ = createBinOp('+', $1, $3); }
 
@@ -357,4 +390,5 @@ void yyerror(const char* s) {
     fprintf(stderr, "      • Verify braces and parentheses are balanced\n");
     fprintf(stderr, "      • Ensure variables are declared before use\n");
     fprintf(stderr, "      • Function syntax: function Name(type param) returns type { ... }\n\n");
+    fprintf(stderr, "      • Array syntax: int nums[5]; nums[0] = 10;\n\n");
 }

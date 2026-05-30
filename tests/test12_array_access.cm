@@ -1,0 +1,6 @@
+int nums[5];
+
+function Master() returns nothing {
+    nums[0] = 10;
+    print(nums[0]);
+}

@@ -82,6 +82,8 @@ const char* getExprType(ASTNode* node) {
         case NODE_CHAR_LIT:  return "char";
         case NODE_BOOL_LIT:  return "bool";
         case NODE_VAR:       return getVarType(node->data.name);   /* symtab lookup */
+        case NODE_ARRAY_ACCESS: return getVarType(node->data.arrayAccess.name); /* symtab lookup */
+            
         case NODE_BINOP: {
             const char* lt = getExprType(node->data.binop.left);
             const char* rt = getExprType(node->data.binop.right);
@@ -159,6 +161,22 @@ void analyzeExpr(ASTNode* node) {
                     reportSemanticWarning(warn);
                 }
             }
+            break;
+        }
+
+        case NODE_ARRAY_ACCESS: {
+            if (!isVarDeclared(node->data.arrayAccess.name)) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "Array '%s' used before declaration",
+                         node->data.arrayAccess.name);
+                reportSemanticError(msg);
+            } else {
+                printf("  ✓ Array '%s' is declared\n",
+                       node->data.arrayAccess.name);
+            }
+
+            analyzeExpr(node->data.arrayAccess.index);
             break;
         }
 
@@ -243,11 +261,6 @@ void analyzeStmt(ASTNode* node) {
     switch (node->type) {
 
         case NODE_DECL: {
-            if (isVarDeclared(node->data.decl.name)) {
-                /* Re-check scoped: addVar will only error on same-scope duplicates,
-                 * but isVarDeclared searches all scopes. We only error here if the
-                 * variable is in the SAME scope (addVar handles that). */
-            }
             int offset = addVar(node->data.decl.name, node->data.decl.varType);
             if (offset != -1) {
                 printf("  ✓ Variable '%s' (type: %s) declared\n",
@@ -261,6 +274,28 @@ void analyzeStmt(ASTNode* node) {
             }
             break;
         }
+        case NODE_ARRAY_DECL: {
+            int offset = addVar(node->data.arrayDecl.name,
+                                node->data.arrayDecl.type);
+
+            if (offset != -1) {
+                printf("  ✓ Array '%s' (type: %s, size: %d) declared\n",
+                       node->data.arrayDecl.name,
+                       node->data.arrayDecl.type,
+                       node->data.arrayDecl.size);
+
+                markInitialized(node->data.arrayDecl.name);
+            } else {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "Array '%s' already declared in this scope",
+                         node->data.arrayDecl.name);
+                reportSemanticError(msg);
+            }
+
+            break;
+        }
+
 
         case NODE_ASSIGN: {
             if (!isVarDeclared(node->data.assign.var)) {
@@ -289,32 +324,68 @@ void analyzeStmt(ASTNode* node) {
             break;
         }
 
+        case NODE_ARRAY_ASSIGN: {
+            if (!isVarDeclared(node->data.arrayAssign.name)) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "Cannot assign to undeclared array '%s'",
+                         node->data.arrayAssign.name);
+                reportSemanticError(msg);
+            } else {
+                printf("  ✓ Assignment to array '%s'\n",
+                       node->data.arrayAssign.name);
+
+                markInitialized(node->data.arrayAssign.name);
+
+                const char* arrayType = getVarType(node->data.arrayAssign.name);
+                const char* valueType = getExprType(node->data.arrayAssign.value);
+
+                if (arrayType && valueType &&
+                    !typesCompatible(arrayType, valueType)) {
+                    char msg[512];
+                    snprintf(msg, sizeof(msg),
+                             "Type mismatch: cannot assign %s value to %s array '%s'",
+                             valueType, arrayType, node->data.arrayAssign.name);
+                    reportSemanticError(msg);
+                }
+            }
+
+            analyzeExpr(node->data.arrayAssign.index);
+            analyzeExpr(node->data.arrayAssign.value);
+            break;
+        }
+
         case NODE_DEC_ASSIGN: {
             int offset = addVar(node->data.DecAssignNode.name,
                                 node->data.DecAssignNode.varType);
+
             if (offset != -1) {
                 printf("  ✓ Variable '%s' (type: %s) declared and assigned\n",
                        node->data.DecAssignNode.name,
                        node->data.DecAssignNode.varType);
+
                 markInitialized(node->data.DecAssignNode.name);
 
-                /* Type compatibility check */
-                const char* varType  = node->data.DecAssignNode.varType;
+                const char* varType = node->data.DecAssignNode.varType;
                 const char* exprType = getExprType(node->data.DecAssignNode.value);
+
                 if (!typesCompatible(varType, exprType)) {
                     char msg[512];
                     snprintf(msg, sizeof(msg),
-                        "Type mismatch: cannot initialize %s variable '%s' with %s value",
-                        varType, node->data.DecAssignNode.name, exprType);
+                             "Type mismatch: cannot initialize %s variable '%s' with %s value",
+                             varType,
+                             node->data.DecAssignNode.name,
+                             exprType);
                     reportSemanticError(msg);
                 }
             } else {
                 char msg[256];
                 snprintf(msg, sizeof(msg),
-                    "Variable '%s' already declared in this scope",
-                    node->data.DecAssignNode.name);
+                         "Variable '%s' already declared in this scope",
+                         node->data.DecAssignNode.name);
                 reportSemanticError(msg);
             }
+
             analyzeExpr(node->data.DecAssignNode.value);
             break;
         }

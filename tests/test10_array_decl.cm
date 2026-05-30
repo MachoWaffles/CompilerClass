@@ -1,0 +1,4 @@
+int nums[5];
+
+function Master() returns nothing {
+}

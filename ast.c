@@ -134,6 +134,32 @@ ASTNode* createReturn(ASTNode* expr) {
     return node;
 }
 
+ASTNode* createArrayDecl(char* type, char* name, int size) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_ARRAY_DECL;
+    node->data.arrayDecl.type = strdup(type);
+    node->data.arrayDecl.name = strdup(name);
+    node->data.arrayDecl.size = size;
+    return node;
+}
+
+ASTNode* createArrayAssign(char* name, ASTNode* index, ASTNode* value) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_ARRAY_ASSIGN;
+    node->data.arrayAssign.name = strdup(name);
+    node->data.arrayAssign.index = index;
+    node->data.arrayAssign.value = value;
+    return node;
+}
+
+ASTNode* createArrayAccess(char* name, ASTNode* index) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_ARRAY_ACCESS;
+    node->data.arrayAccess.name = strdup(name);
+    node->data.arrayAccess.index = index;
+    return node;
+}
+
 /* ── PRINT AST ────────────────────────────────────────────────────────────── */
 void printAST(ASTNode* node, int level) {
     if (!node) return;
@@ -215,6 +241,32 @@ void printAST(ASTNode* node, int level) {
             if (node->data.returnExpr) {
                 printAST(node->data.returnExpr, level + 1);
             }
+            break;
+        case NODE_ARRAY_DECL:
+            printf("ARRAY_DECL: %s %s[%d]\n",
+                node->data.arrayDecl.type,
+                node->data.arrayDecl.name,
+                node->data.arrayDecl.size);
+            break;
+
+        case NODE_ARRAY_ASSIGN:
+            printf("ARRAY_ASSIGN: %s[index] =\n",
+                node->data.arrayAssign.name);
+
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("INDEX:\n");
+            printAST(node->data.arrayAssign.index, level + 2);
+
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("VALUE:\n");
+            printAST(node->data.arrayAssign.value, level + 2);
+            break;
+
+        case NODE_ARRAY_ACCESS:
+            printf("ARRAY_ACCESS: %s[index]\n",
+                node->data.arrayAccess.name);
+
+            printAST(node->data.arrayAccess.index, level + 1);
             break;
     }
 }

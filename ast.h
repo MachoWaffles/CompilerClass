@@ -29,10 +29,11 @@ typedef enum {
     NODE_PARAM_DECL,  /* One parameter declaration in a function signature */
     NODE_FUNC_DECL,   /* Function declaration */
     NODE_FUNC_CALL,   /* Function call in expression position */
-    NODE_RETURN       /* return expr; or return; */
+    NODE_RETURN,      /* return expr; or return; */
 
-    /* TODO: NODE_ARRAY_DECL  — e.g. int arr[10]; */
-    /* TODO: NODE_ARRAY_ACCESS — e.g. arr[i] */
+    NODE_ARRAY_DECL,   /* Array declaration, e.g. int arr[10]; */
+    NODE_ARRAY_ASSIGN, /* Array assignment, e.g. arr[0] = 5; */
+    NODE_ARRAY_ACCESS  /* Array access, e.g. arr[0] */
 } NodeType;
 
 typedef struct ASTNode {
@@ -110,8 +111,23 @@ typedef struct ASTNode {
         /* NODE_RETURN */
         struct ASTNode* returnExpr; /* NULL for void return */
 
-        /* TODO: NODE_ARRAY_DECL — would need: type, name, size */
-        /* TODO: NODE_ARRAY_ACCESS — would need: name, index expr */
+        struct {
+            char* type;
+            char* name;
+            int size; 
+        } arrayDecl;
+
+        struct {
+            char* name;
+            struct ASTNode* index;
+            struct ASTNode* value;
+        } arrayAssign;
+
+        struct {
+            char* name;
+            struct ASTNode* index;
+        } arrayAccess;
+
     } data;
 } ASTNode;
 
@@ -131,6 +147,10 @@ ASTNode* createParamDecl(char* type, char* name);
 ASTNode* createFuncDecl(char* name, char* returnType, ASTNode* params, ASTNode* body);
 ASTNode* createFuncCall(char* name, ASTNode* args);
 ASTNode* createReturn(ASTNode* expr);     /* expr may be NULL for void return */
+
+ASTNode* createArrayDecl(char* type, char* name, int size);
+ASTNode* createArrayAssign(char* name, ASTNode* index, ASTNode* value);
+ASTNode* createArrayAccess(char* name, ASTNode* index);
 
 /* ── DISPLAY ─────────────────────────────────────────────────────────────── */
 void printAST(ASTNode* node, int level);

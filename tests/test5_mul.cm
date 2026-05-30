@@ -1,0 +1,4 @@
+function Master() returns nothing {
+    int x = 3 * 4;
+    print(x);
+}
