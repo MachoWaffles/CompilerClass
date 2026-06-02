@@ -472,6 +472,12 @@ void analyzeStmt(ASTNode* node) {
             break;
         }
 
+        case NODE_WHILE: {
+            analyzeExpr(node->data.whileStmt.condition);
+            analyzeStmt(node->data.whileStmt.body);
+            break;
+        }
+
         case NODE_STMT_LIST:
             analyzeStmt(node->data.stmtlist.stmt);
             analyzeStmt(node->data.stmtlist.next);

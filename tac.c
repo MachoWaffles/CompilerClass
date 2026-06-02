@@ -66,6 +66,13 @@ static void appendOptimizedTAC(TACInstr* instr) {
     }
 }
 
+static int labelCount = 0;
+char* newLabel() {
+    char* label = malloc(16);
+    sprintf(label, "L%d", labelCount++);
+    return label;
+}
+
 /* ── EXPRESSION TAC ──────────────────────────────────────────────────────── */
 char* generateTACExpr(ASTNode* node) {
     if (!node) return NULL;
@@ -275,8 +282,61 @@ void generateTAC(ASTNode* node) {
 
         default:
             break;
-    }
-}
+
+       case NODE_WHILE: {
+
+            char* startLabel = newLabel();
+            char* endLabel   = newLabel();
+
+            /* loop start */
+            appendTAC(createTAC(
+                TAC_LABEL,
+                NULL,
+                NULL,
+                startLabel
+            ));
+
+            /* condition */
+            char* cond =
+                generateTACExpr(
+                    node->data.whileStmt.condition
+                );
+
+            appendTAC(createTAC(
+                TAC_IF_FALSE,
+                cond,
+                NULL,
+                endLabel
+            ));
+
+            /* body */
+            generateTAC(
+                node->data.whileStmt.body
+            );
+
+            /* jump back */
+            appendTAC(createTAC(
+                TAC_GOTO,
+                NULL,
+                NULL,
+                startLabel
+            ));
+
+            /* loop exit */
+            appendTAC(createTAC(
+                TAC_LABEL,
+                NULL,
+                NULL,
+                endLabel
+            ));
+
+            if (cond)
+                free(cond);
+
+            break;
+        }
+            }
+        }
 
 /* ── PRINT TAC ────────────────────────────────────────────────────────────── */
 static void printTACInstr(TACInstr* curr, int lineNum, int optimized) {
@@ -334,6 +394,15 @@ static void printTACInstr(TACInstr* curr, int lineNum, int optimized) {
         case TAC_DIV:
             printf("%s = %s / %s", curr->result, curr->arg1, curr->arg2);
             printf("     // Division\n");
+            break;
+        case TAC_LABEL:
+            printf("LABEL %s\n", curr->result);
+            break;
+        case TAC_GOTO:
+            printf("GOTO %s\n", curr->result);
+            break;
+        case TAC_IF_FALSE:
+            printf("IF_FALSE %s GOTO %s\n", curr->arg1, curr->result);
             break;
         default:
             printf("(unknown op)\n");
@@ -540,6 +609,15 @@ static void writeTACInstr(FILE* f, TACInstr* curr, int n) {
             break;
         default:
             fprintf(f, "(unknown)\n");
+            break;
+        case TAC_LABEL:
+            fprintf(f, "LABEL %s\n", curr->result);
+            break;
+        case TAC_GOTO:
+            fprintf(f, "GOTO %s\n", curr->result);
+            break;
+        case TAC_IF_FALSE:
+            fprintf(f, "IF_FALSE %s GOTO %s\n", curr->arg1, curr->result);
             break;
     }
 }

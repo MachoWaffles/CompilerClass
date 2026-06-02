@@ -160,6 +160,14 @@ ASTNode* createArrayAccess(char* name, ASTNode* index) {
     return node;
 }
 
+ASTNode* createWhile(ASTNode* condition, ASTNode* body) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_WHILE;
+    node->data.whileStmt.condition = condition;
+    node->data.whileStmt.body = body;
+    return node;
+}
+
 /* ── PRINT AST ────────────────────────────────────────────────────────────── */
 void printAST(ASTNode* node, int level) {
     if (!node) return;
@@ -265,8 +273,18 @@ void printAST(ASTNode* node, int level) {
         case NODE_ARRAY_ACCESS:
             printf("ARRAY_ACCESS: %s[index]\n",
                 node->data.arrayAccess.name);
-
             printAST(node->data.arrayAccess.index, level + 1);
+            break;
+
+        case NODE_WHILE:
+            printf("WHILE\n");
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("CONDITION:\n");
+            printAST(node->data.whileStmt.condition, level + 2);    
+
+            for (int i = 0; i < level + 1; i++) printf("  ");   
+            printf("BODY:\n");
+            printAST(node->data.whileStmt.body, level + 2);
             break;
     }
 }

@@ -33,7 +33,9 @@ typedef enum {
 
     NODE_ARRAY_DECL,   /* Array declaration, e.g. int arr[10]; */
     NODE_ARRAY_ASSIGN, /* Array assignment, e.g. arr[0] = 5; */
-    NODE_ARRAY_ACCESS  /* Array access, e.g. arr[0] */
+    NODE_ARRAY_ACCESS,  /* Array access, e.g. arr[0] */
+
+    NODE_WHILE
 } NodeType;
 
 typedef struct ASTNode {
@@ -128,6 +130,11 @@ typedef struct ASTNode {
             struct ASTNode* index;
         } arrayAccess;
 
+        struct {
+            struct ASTNode* condition;
+            struct ASTNode* body;
+        } whileStmt;
+
     } data;
 } ASTNode;
 
@@ -151,6 +158,7 @@ ASTNode* createReturn(ASTNode* expr);     /* expr may be NULL for void return */
 ASTNode* createArrayDecl(char* type, char* name, int size);
 ASTNode* createArrayAssign(char* name, ASTNode* index, ASTNode* value);
 ASTNode* createArrayAccess(char* name, ASTNode* index);
+ASTNode* createWhile(ASTNode* condition, ASTNode* body);
 
 /* ── DISPLAY ─────────────────────────────────────────────────────────────── */
 void printAST(ASTNode* node, int level);

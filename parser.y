@@ -50,12 +50,15 @@ ASTNode* root = NULL;
 /* Other keywords */
 %token PRINT
 
+%token WHILE
+
 /* ── NON-TERMINAL TYPES ─────────────────────────────────────────────────── */
 %type <node> program top_level_list top_level_item
 %type <node> stmt_list stmt decl assign expr print_stmt decAssign
 %type <node> func_decl param_decl_list param_decl arg_list return_stmt call_stmt
 %type <node> array_decl array_assign
 %type <str>  type
+%type <node> while_stmt
 
 /* ── OPERATOR PRECEDENCE ────────────────────────────────────────────────── */
 %left '+' '-'    /* addition and subtraction (- grammar rule TODO) */
@@ -95,6 +98,7 @@ stmt:
     | call_stmt
     | array_decl
     | array_assign
+    | while_stmt
     ;
 
 /* ── TYPE NON-TERMINAL ───────────────────────────────────────────────────── */
@@ -301,6 +305,15 @@ param_decl:
         $$ = createParamDecl($1, $2);
         free($2);
     }
+    ;
+
+while_stmt:
+    WHILE '('expr')' '{' stmt_list '}' {
+        $$ = createWhile($3, $6);
+    }
+    | WHILE '('expr')' '{' '}' {
+        $$ = createWhile($3, NULL);
+    }   
     ;
 
 /* ── EXPRESSIONS ─────────────────────────────────────────────────────────── */
