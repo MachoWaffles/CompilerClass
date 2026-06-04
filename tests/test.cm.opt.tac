@@ -11,14 +11,19 @@
  9: DECL char c
 10: c = 103
 11: DECL float z
-12: z = t3
-13: PRINT t3
-14: x = t4
-15: PRINT t4
-16: PRINT 20
-17: PRINT 1
-18: t5 = 103 + t4
-19: PRINT t5
-20: globalX = t4
-21: RETURN
-22: FUNC_END Master
+12: t0 = 2
+13: t1 = 20
+14: t2 = 60
+15: t3 = 0
+16: z = 0
+17: PRINT 0
+18: t4 = 0
+19: x = 0
+20: PRINT 0
+21: PRINT 20
+22: PRINT 1
+23: t5 = 103
+24: PRINT 103
+25: globalX = 0
+26: RETURN
+27: FUNC_END Master

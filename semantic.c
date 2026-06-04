@@ -26,6 +26,11 @@ int semanticErrors = 0;
 static char* initializedVars[200];
 static int   initializedCount = 0;
 
+/* Set to 1 while analyzing a for-loop init clause so DEC_ASSIGN uses
+ * addOrReuseVar instead of addVar — prevents false "already declared"
+ * errors when two loops in the same function both use e.g. int i. */
+static int inForInit = 0;
+
 /* The return type expected by the function currently being analyzed.
  * NULL when analyzing global scope. */
 static const char* currentFuncReturnType = NULL;
@@ -87,7 +92,11 @@ const char* getExprType(ASTNode* node) {
         case NODE_BINOP: {
             const char* lt = getExprType(node->data.binop.left);
             const char* rt = getExprType(node->data.binop.right);
-            /* If either operand is float, the result is float (standard promotion) */
+            char op = node->data.binop.op;
+            /* Comparison operators always produce a bool result */
+            if (op == '<' || op == '>' || op == 'L' || op == 'G' ||
+                op == 'E' || op == 'N') return "bool";
+            /* Arithmetic: if either operand is float, result is float */
             if (lt && strcmp(lt, "float") == 0) return "float";
             if (rt && strcmp(rt, "float") == 0) return "float";
             return "int";
@@ -356,8 +365,11 @@ void analyzeStmt(ASTNode* node) {
         }
 
         case NODE_DEC_ASSIGN: {
-            int offset = addVar(node->data.DecAssignNode.name,
-                                node->data.DecAssignNode.varType);
+            int offset = inForInit
+                ? addOrReuseVar(node->data.DecAssignNode.name,
+                                node->data.DecAssignNode.varType)
+                : addVar(node->data.DecAssignNode.name,
+                         node->data.DecAssignNode.varType);
 
             if (offset != -1) {
                 printf("  ✓ Variable '%s' (type: %s) declared and assigned\n",
@@ -475,6 +487,20 @@ void analyzeStmt(ASTNode* node) {
         case NODE_WHILE: {
             analyzeExpr(node->data.whileStmt.condition);
             analyzeStmt(node->data.whileStmt.body);
+            break;
+        }
+
+        case NODE_FOR: {
+            /* init — treated like a stand-alone decAssign or assign statement */
+            inForInit = 1;
+            analyzeStmt(node->data.forStmt.init);
+            inForInit = 0;
+            /* condition — same as while's condition */
+            analyzeExpr(node->data.forStmt.condition);
+            /* update — treated like a stand-alone assign statement */
+            analyzeStmt(node->data.forStmt.update);
+            /* body */
+            analyzeStmt(node->data.forStmt.body);
             break;
         }
 

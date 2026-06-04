@@ -89,7 +89,64 @@ int addVar(char* name, char* type) {
     return offset;
 }
 
-/* ── LOOKUP ───────────────────────────────────────────────────────────────── */
+/* ── ADD OR REUSE VARIABLE ───────────────────────────────────────────────── */
+/* Used exclusively by for-loop init. If the variable is already declared in
+ * the current scope (e.g. a second loop also uses 'int i'), silently reuse
+ * its existing offset instead of erroring. This avoids requiring block-level
+ * scoping for the common pattern of reusing a loop counter name. */
+int addOrReuseVar(char* name, char* type) {
+    for (int i = 0; i < symtab.count; i++) {
+        if (strcmp(symtab.vars[i].name,  name) == 0 &&
+            strcmp(symtab.vars[i].scope, currentScope) == 0) {
+            printf("SYMBOL TABLE: Reusing '%s' (type: %s, scope: %s, offset: %d)\n",
+                   name, type, currentScope, symtab.vars[i].offset);
+            return symtab.vars[i].offset;
+        }
+    }
+    /* Not yet declared — fall through to normal addVar */
+    return addVar(name, type);
+}
+
+/* ── ADD ARRAY ───────────────────────────────────────────────────────────── */
+/* Registers an array's base offset and reserves size*4 bytes so that
+ * subsequent variables don't overlap the array's storage. */
+int addArray(char* name, char* type, int size) {
+    /* Duplicate check */
+    for (int i = 0; i < symtab.count; i++) {
+        if (strcmp(symtab.vars[i].name,  name) == 0 &&
+            strcmp(symtab.vars[i].scope, currentScope) == 0) {
+            fprintf(stderr,
+                "SYMBOL TABLE ERROR: Array '%s' already declared in scope '%s'\n",
+                name, currentScope);
+            return -1;
+        }
+    }
+    if (symtab.count >= MAX_VARS) {
+        fprintf(stderr, "SYMBOL TABLE ERROR: Maximum variable limit reached\n");
+        return -1;
+    }
+
+    int offset;
+    int byteSize = size * 4;  /* reserve all elements at once */
+
+    if (strcmp(currentScope, "global") == 0) {
+        offset = symtab.nextGlobalOffset;
+        symtab.nextGlobalOffset += byteSize;
+    } else {
+        offset = symtab.nextLocalOffset;
+        symtab.nextLocalOffset += byteSize;
+    }
+
+    symtab.vars[symtab.count].name   = strdup(name);
+    symtab.vars[symtab.count].type   = strdup(type);
+    symtab.vars[symtab.count].scope  = strdup(currentScope);
+    symtab.vars[symtab.count].offset = offset;
+    symtab.count++;
+
+    printf("SYMBOL TABLE: Array '%s' (type: %s[%d], scope: %s, base offset: %d)\n",
+           name, type, size, currentScope, offset);
+    return offset;
+}
 /* Searches current scope first, then global. Returns offset or -1. */
 int getVarOffset(char* name) {
     /* Current scope first */

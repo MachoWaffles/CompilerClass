@@ -51,7 +51,9 @@ typedef struct {
 
 /* ── SYMBOL TABLE OPERATIONS ─────────────────────────────────────────────── */
 void  initSymTab();
-int   addVar(char* name, char* type);   /* uses current scope; -1 = duplicate */
+int   addVar(char* name, char* type);         /* uses current scope; -1 = duplicate */
+int   addOrReuseVar(char* name, char* type);  /* for-loop init: reuse offset if already declared */
+int   addArray(char* name, char* type, int size); /* registers base, reserves size*4 bytes */
 int   getVarOffset(char* name);         /* current scope then global; -1 = not found */
 int   isVarDeclared(char* name);
 const char* getVarType(char* name);           /* returns type string or NULL */

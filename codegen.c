@@ -34,6 +34,8 @@ static void resetTemps() {
 
 /* ── UNIQUE LABEL COUNTER ───────────────────────────────────────────────── */
 static int printLabelCount = 0;
+static int loopLabelCount  = 0;
+static int inForInit       = 0;  /* suppresses duplicate-decl error in for init */
 
 /* ── FORWARD DECLARATIONS ───────────────────────────────────────────────── */
 static int         genExpr(ASTNode* node);
@@ -222,6 +224,30 @@ static int genExpr(ASTNode* node) {
                                 lR);
                         break;
 
+                    /* ── Comparison operators — result is 0 (false) or 1 (true) ── */
+                    case '<':
+                        fprintf(output, "    slt $t%d, $t%d, $t%d\n", lR, lR, rR);
+                        break;
+                    case '>':
+                        fprintf(output, "    slt $t%d, $t%d, $t%d\n", lR, rR, lR);
+                        break;
+                    case 'L': /* <= */
+                        fprintf(output, "    slt $t%d, $t%d, $t%d\n", lR, rR, lR);
+                        fprintf(output, "    xori $t%d, $t%d, 1\n",   lR, lR);
+                        break;
+                    case 'G': /* >= */
+                        fprintf(output, "    slt $t%d, $t%d, $t%d\n", lR, lR, rR);
+                        fprintf(output, "    xori $t%d, $t%d, 1\n",   lR, lR);
+                        break;
+                    case 'E': /* == */
+                        fprintf(output, "    xor  $t%d, $t%d, $t%d\n", lR, lR, rR);
+                        fprintf(output, "    sltiu $t%d, $t%d, 1\n",   lR, lR);
+                        break;
+                    case 'N': /* != */
+                        fprintf(output, "    xor  $t%d, $t%d, $t%d\n", lR, lR, rR);
+                        fprintf(output, "    sltu $t%d, $zero, $t%d\n", lR, lR);
+                        break;
+
                     default:
                         fprintf(stderr,
                                 "\n❌ Unsupported binary operator '%c'\n",
@@ -284,6 +310,37 @@ static int genExpr(ASTNode* node) {
             return retR;
         }
 
+        case NODE_ARRAY_ACCESS: {
+            /* address = base_offset + index * 4
+             * Steps: evaluate index into a temp, multiply by 4, add base
+             * offset, then load word from that address relative to $sp/$fp. */
+            const char* arrName = node->data.arrayAccess.name;
+            int base = getVarOffset((char*)arrName);
+            if (base == -1) {
+                fprintf(stderr,
+                        "\n❌ Code Generation Error: Array '%s' not found\n",
+                        arrName);
+                exit(1);
+            }
+
+            int idxR = genExpr(node->data.arrayAccess.index);
+            /* index * 4 */
+            fprintf(output, "    sll $t%d, $t%d, 2\n", idxR, idxR);
+
+            int addrR = getNextTemp();
+            if (isVarGlobal(arrName))
+                fprintf(output, "    addi $t%d, $sp, %d\n", addrR, base);
+            else
+                fprintf(output, "    addi $t%d, $fp, %d\n", addrR, base);
+
+            fprintf(output, "    add  $t%d, $t%d, $t%d\n", addrR, addrR, idxR);
+            free_temp(idxR);
+
+            /* Load the element */
+            fprintf(output, "    lw   $t%d, 0($t%d)\n", addrR, addrR);
+            return addrR;
+        }
+
         default:
             return -1;
     }
@@ -299,9 +356,21 @@ static int countLocals(ASTNode* node) {
         node->type == NODE_DEC_ASSIGN)
         return 1;
 
+    /* Arrays need size slots, not just 1 */
+    if (node->type == NODE_ARRAY_DECL)
+        return node->data.arrayDecl.size;
+
     if (node->type == NODE_STMT_LIST)
         return countLocals(node->data.stmtlist.stmt)
              + countLocals(node->data.stmtlist.next);
+
+    /* A for-loop init may declare a new variable (int i = 0) */
+    if (node->type == NODE_FOR)
+        return countLocals(node->data.forStmt.init)
+             + countLocals(node->data.forStmt.body);
+
+    if (node->type == NODE_WHILE)
+        return countLocals(node->data.whileStmt.body);
 
     return 0;
 }
@@ -490,21 +559,19 @@ static void genStmt(ASTNode* node) {
             int offset;
 
             if (strcmp(getCurrentScope(), "global") == 0) {
-                offset =
-                    getVarOffset(node->data.DecAssignNode.name);
+                offset = getVarOffset(node->data.DecAssignNode.name);
             }
             else {
-
-                offset =
-                    addVar(node->data.DecAssignNode.name,
-                           node->data.DecAssignNode.varType);
+                offset = inForInit
+                    ? addOrReuseVar(node->data.DecAssignNode.name,
+                                    node->data.DecAssignNode.varType)
+                    : addVar(node->data.DecAssignNode.name,
+                             node->data.DecAssignNode.varType);
 
                 if (offset == -1) {
-
                     fprintf(stderr,
                             "\n❌ Code Generation Error: Variable '%s' already declared\n",
                             node->data.DecAssignNode.name);
-
                     exit(1);
                 }
             }
@@ -534,8 +601,59 @@ static void genStmt(ASTNode* node) {
             break;
         }
 
-        case NODE_PRINT: {
+        case NODE_ARRAY_DECL: {
+            /* Register the array in the symbol table, reserving size*4 bytes.
+             * In global scope this was already done by preRegisterGlobals;
+             * in a function scope we register it now during codegen. */
+            if (strcmp(getCurrentScope(), "global") != 0) {
+                int offset = addArray(node->data.arrayDecl.name,
+                                      node->data.arrayDecl.type,
+                                      node->data.arrayDecl.size);
+                fprintf(output,
+                        "    # array %s %s[%d] at fp+%d\n",
+                        node->data.arrayDecl.type,
+                        node->data.arrayDecl.name,
+                        node->data.arrayDecl.size,
+                        offset);
+            }
+            break;
+        }
 
+        case NODE_ARRAY_ASSIGN: {
+            /* address = base_offset + index * 4 */
+            const char* arrName = node->data.arrayAssign.name;
+            int base = getVarOffset((char*)arrName);
+            if (base == -1) {
+                fprintf(stderr,
+                        "\n❌ Code Generation Error: Array '%s' not declared\n",
+                        arrName);
+                exit(1);
+            }
+
+            int idxR = genExpr(node->data.arrayAssign.index);
+            /* index * 4 */
+            fprintf(output, "    sll $t%d, $t%d, 2\n", idxR, idxR);
+
+            int addrR = getNextTemp();
+            if (isVarGlobal(arrName))
+                fprintf(output, "    addi $t%d, $sp, %d\n", addrR, base);
+            else
+                fprintf(output, "    addi $t%d, $fp, %d\n", addrR, base);
+
+            fprintf(output, "    add  $t%d, $t%d, $t%d\n", addrR, addrR, idxR);
+            free_temp(idxR);
+
+            /* Evaluate value and store */
+            int valR = genExpr(node->data.arrayAssign.value);
+            fprintf(output, "    sw   $t%d, 0($t%d)\n", valR, addrR);
+
+            free_temp(valR);
+            free_temp(addrR);
+            resetTemps();
+            break;
+        }
+
+        case NODE_PRINT: {
             ASTNode* expr = node->data.expr;
 
             /* Infer the type of the expression being printed */
@@ -618,6 +736,69 @@ static void genStmt(ASTNode* node) {
 
             break;
 
+        case NODE_WHILE: {
+            int lbl = loopLabelCount++;
+            fprintf(output, "\n_while_start_%d:\n", lbl);
+
+            /* Evaluate condition; branch past body if false (== 0) */
+            int condR = genExpr(node->data.whileStmt.condition);
+            fprintf(output, "    beq $t%d, $zero, _while_end_%d\n", condR, lbl);
+            free_temp(condR);
+            resetTemps();
+
+            genStmt(node->data.whileStmt.body);
+
+            fprintf(output, "    j _while_start_%d\n", lbl);
+            fprintf(output, "_while_end_%d:\n\n", lbl);
+
+            break;
+        }
+
+        case NODE_FOR: {
+            int lbl = loopLabelCount++;
+
+            /* Init — a DEC_ASSIGN (int i = 0) or ASSIGN (i = 0) */
+            inForInit = 1;
+            genStmt(node->data.forStmt.init);
+            inForInit = 0;
+            resetTemps();
+
+            fprintf(output, "\n_for_start_%d:\n", lbl);
+
+            /* Condition — branch past body if false */
+            int condR = genExpr(node->data.forStmt.condition);
+            fprintf(output, "    beq $t%d, $zero, _for_end_%d\n", condR, lbl);
+            free_temp(condR);
+            resetTemps();
+
+            /* Body */
+            genStmt(node->data.forStmt.body);
+
+            /* Update — always an ASSIGN (i = i + 1, or desugared i++) */
+            genStmt(node->data.forStmt.update);
+            resetTemps();
+
+            fprintf(output, "    j _for_start_%d\n", lbl);
+            fprintf(output, "_for_end_%d:\n\n", lbl);
+
+            break;
+        }
+
+        /* These node types are expression nodes handled by genExpr, or
+         * structural nodes (PARAM_DECL, FUNC_DECL) handled elsewhere.
+         * They should never arrive at genStmt; list them explicitly to
+         * satisfy -Wswitch and document the intentional no-op. */
+        case NODE_NUM:
+        case NODE_VAR:
+        case NODE_BINOP:
+        case NODE_FLOAT_LIT:
+        case NODE_CHAR_LIT:
+        case NODE_BOOL_LIT:
+        case NODE_ARRAY_ACCESS:
+        case NODE_PARAM_DECL:
+        case NODE_FUNC_DECL:
+            break;
+
         default:
             break;
     }
@@ -665,14 +846,15 @@ static void preRegisterGlobals(ASTNode* node) {
     }
 
     if (node->type == NODE_DECL) {
-
-        addVar(node->data.decl.name,
-               node->data.decl.varType);
+        addVar(node->data.decl.name, node->data.decl.varType);
     }
     else if (node->type == NODE_DEC_ASSIGN) {
-
-        addVar(node->data.DecAssignNode.name,
-               node->data.DecAssignNode.varType);
+        addVar(node->data.DecAssignNode.name, node->data.DecAssignNode.varType);
+    }
+    else if (node->type == NODE_ARRAY_DECL) {
+        addArray(node->data.arrayDecl.name,
+                 node->data.arrayDecl.type,
+                 node->data.arrayDecl.size);
     }
 }
 

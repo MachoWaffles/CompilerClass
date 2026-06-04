@@ -168,6 +168,17 @@ ASTNode* createWhile(ASTNode* condition, ASTNode* body) {
     return node;
 }
 
+ASTNode* createFor(ASTNode* init, ASTNode* condition,
+                   ASTNode* update, ASTNode* body) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_FOR;
+    node->data.forStmt.init      = init;
+    node->data.forStmt.condition = condition;
+    node->data.forStmt.update    = update;
+    node->data.forStmt.body      = body;
+    return node;
+}
+
 /* ── PRINT AST ────────────────────────────────────────────────────────────── */
 void printAST(ASTNode* node, int level) {
     if (!node) return;
@@ -190,11 +201,24 @@ void printAST(ASTNode* node, int level) {
         case NODE_VAR:
             printf("VAR: %s\n", node->data.name);
             break;
-        case NODE_BINOP:
-            printf("BINOP: %c\n", node->data.binop.op);
+        case NODE_BINOP: {
+            const char* opName;
+            switch (node->data.binop.op) {
+                case 'L': opName = "<="; break;
+                case 'G': opName = ">="; break;
+                case 'E': opName = "=="; break;
+                case 'N': opName = "!="; break;
+                default: {
+                    static char buf[2] = {0, 0};
+                    buf[0] = node->data.binop.op;
+                    opName = buf;
+                }
+            }
+            printf("BINOP: %s\n", opName);
             printAST(node->data.binop.left,  level + 1);
             printAST(node->data.binop.right, level + 1);
             break;
+        }
         case NODE_DECL:
             printf("DECL: %s %s\n", node->data.decl.varType, node->data.decl.name);
             break;
@@ -285,6 +309,25 @@ void printAST(ASTNode* node, int level) {
             for (int i = 0; i < level + 1; i++) printf("  ");   
             printf("BODY:\n");
             printAST(node->data.whileStmt.body, level + 2);
+            break;
+
+        case NODE_FOR:
+            printf("FOR\n");
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("INIT:\n");
+            printAST(node->data.forStmt.init, level + 2);
+
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("CONDITION:\n");
+            printAST(node->data.forStmt.condition, level + 2);
+
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("UPDATE:\n");
+            printAST(node->data.forStmt.update, level + 2);
+
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("BODY:\n");
+            printAST(node->data.forStmt.body, level + 2);
             break;
     }
 }

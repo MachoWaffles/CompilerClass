@@ -51,6 +51,9 @@ ASTNode* root = NULL;
 %token PRINT
 
 %token WHILE
+%token FOR
+%token INC
+%token LE GE EQ NE
 
 /* ── NON-TERMINAL TYPES ─────────────────────────────────────────────────── */
 %type <node> program top_level_list top_level_item
@@ -58,11 +61,13 @@ ASTNode* root = NULL;
 %type <node> func_decl param_decl_list param_decl arg_list return_stmt call_stmt
 %type <node> array_decl array_assign
 %type <str>  type
-%type <node> while_stmt
+%type <node> while_stmt for_stmt for_init for_update
 
 /* ── OPERATOR PRECEDENCE ────────────────────────────────────────────────── */
-%left '+' '-'    /* addition and subtraction (- grammar rule TODO) */
-%left '*' '/'    /* multiplication and division (grammar rules TODO) */
+%left EQ NE
+%left '<' '>' LE GE
+%left '+' '-'
+%left '*' '/'
 
 %%
 
@@ -99,6 +104,7 @@ stmt:
     | array_decl
     | array_assign
     | while_stmt
+    | for_stmt
     ;
 
 /* ── TYPE NON-TERMINAL ───────────────────────────────────────────────────── */
@@ -316,6 +322,48 @@ while_stmt:
     }   
     ;
 
+/* ── FOR STATEMENT ───────────────────────────────────────────────────────────
+ *   Syntax:  for ( init ; condition ; update ) { body }
+ *
+ *   init   — a decAssign (int i = 0) or assign (i = 0), WITHOUT its own ';'
+ *             because the for-header supplies the separating ';' tokens.
+ *   condition — any expression.
+ *   update — an assign WITHOUT its trailing ';' (same reason).
+ *
+ *   Design note: init and update reuse the existing decAssign / assign AST
+ *   constructors; only the grammar rules are new.  The semantic phase then
+ *   handles them identically to stand-alone decAssign / assign statements.
+ */
+
+/* Helpers: assign and decAssign *without* a trailing semicolon, used only
+ * inside the for-header so the ';' separators belong to the for rule. */
+for_init:
+    type ID '=' expr   { $$ = createDecAssignNode($1, $2, $4); free($2); }
+    | ID '=' expr      { $$ = createAssign($1, $3);            free($1); }
+    ;
+
+for_update:
+    ID '=' expr   { $$ = createAssign($1, $3); free($1); }
+    | ID INC      { $$ = createAssign($1, createBinOp('+', createVar($1), createNum(1))); free($1); }
+    ;
+
+for_stmt:
+    FOR '(' for_init ';' expr ';' for_update ')' '{' stmt_list '}' {
+        $$ = createFor($3, $5, $7, $10);
+    }
+    | FOR '(' for_init ';' expr ';' for_update ')' '{' '}' {
+        /* Empty body — body is NULL */
+        $$ = createFor($3, $5, $7, NULL);
+    }
+    | FOR '(' for_init ';' expr ';' for_update ')' error {
+        fprintf(stderr, "\n❌ Syntax Error at line %d:\n", yylineno);
+        fprintf(stderr, "   Expected '{' to open for-loop body\n");
+        fprintf(stderr, "   💡 Suggestion: for (init; condition; update) { ... }\n\n");
+        $$ = NULL;
+        yyerrok;
+    }
+    ;
+
 /* ── EXPRESSIONS ─────────────────────────────────────────────────────────── */
 expr:
     NUM                     { $$ = createNum($1); }
@@ -331,17 +379,16 @@ expr:
     | ID '[' expr ']'        { $$ = createArrayAccess($1, $3); free($1); }
 
     | expr '+' expr         { $$ = createBinOp('+', $1, $3); }
-
-    | expr '-' expr      { $$ = createBinOp('-', $1, $3); }
-    
-
-    | expr '*' expr      { $$ = createBinOp('*', $1, $3); }
-    
-
-    | expr '/' expr      { $$ = createBinOp('/', $1, $3); }
-    
-    | '(' expr ')' {$$ = $2; }
-
+    | expr '-' expr         { $$ = createBinOp('-', $1, $3); }
+    | expr '*' expr         { $$ = createBinOp('*', $1, $3); }
+    | expr '/' expr         { $$ = createBinOp('/', $1, $3); }
+    | expr '<' expr         { $$ = createBinOp('<', $1, $3); }
+    | expr '>' expr         { $$ = createBinOp('>', $1, $3); }
+    | expr LE  expr         { $$ = createBinOp('L', $1, $3); }
+    | expr GE  expr         { $$ = createBinOp('G', $1, $3); }
+    | expr EQ  expr         { $$ = createBinOp('E', $1, $3); }
+    | expr NE  expr         { $$ = createBinOp('N', $1, $3); }
+    | '(' expr ')'          { $$ = $2; }
     ;
 
 /* ── ARGUMENT LIST (for function calls) ───────────────────────────────────── */
