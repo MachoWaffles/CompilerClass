@@ -1,0 +1,20 @@
+// t08_while_accumulator.cm — accumulator and nested while
+// Expected output: 55  then  1 2 3 1 2 3
+function Master() returns nothing {
+    int sum = 0;
+    int n = 1;
+    while(n <= 10) {
+        sum = sum + n;
+        n = n + 1;
+    }
+    print(sum);
+    int outer = 1;
+    while(outer <= 2) {
+        int inner = 1;
+        while(inner <= 3) {
+            print(inner);
+            inner = inner + 1;
+        }
+        outer = outer + 1;
+    }
+}

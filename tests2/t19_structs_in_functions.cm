@@ -1,0 +1,15 @@
+// t19_structs_in_functions.cm — struct local to a function, fields in expressions
+// Expected output: 5  12  17
+struct Box {
+    int val;
+    int extra;
+}
+function Master() returns nothing {
+    Box b;
+    b.val   = 5;
+    b.extra = 12;
+    print(b.val);
+    print(b.extra);
+    int total = b.val + b.extra;
+    print(total);
+}

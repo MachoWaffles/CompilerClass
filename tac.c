@@ -533,8 +533,10 @@ void optimizeTAC() {
 
             case TAC_PRINT: {
                 char* value = curr->arg1;
-                for (int i = valueCount - 1; i >= 0; i--)
-                    if (strcmp(values[i].var, value) == 0) { value = values[i].value; break; }
+                if (value) {
+                    for (int i = valueCount - 1; i >= 0; i--)
+                        if (strcmp(values[i].var, value) == 0) { value = values[i].value; break; }
+                }
                 newInstr = createTAC(TAC_PRINT, value, NULL, NULL);
                 break;
             }

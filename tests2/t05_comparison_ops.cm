@@ -1,0 +1,18 @@
+// t05_comparison_ops.cm — all six comparison operators
+// Expected output: 1 0 0 1 1 0 1 0 1 0 1 0
+function Master() returns nothing {
+    int a = 3;
+    int b = 5;
+    bool r1 = a < b;  print(r1);
+    bool r2 = b < a;  print(r2);
+    bool r3 = a > b;  print(r3);
+    bool r4 = b > a;  print(r4);
+    bool r5 = a <= b; print(r5);
+    bool r6 = b <= a; print(r6);
+    bool r7 = b >= a; print(r7);
+    bool r8 = a >= b; print(r8);
+    bool r9  = a == a; print(r9);
+    bool r10 = a == b; print(r10);
+    bool r11 = a != b; print(r11);
+    bool r12 = a != a; print(r12);
+}

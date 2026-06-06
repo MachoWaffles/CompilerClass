@@ -1,0 +1,6 @@
+// err01 — EXPECTED REJECTION: 'z' used before declaration
+function Master() returns nothing {
+    int x = 5;
+    int y = x + z;
+    print(y);
+}

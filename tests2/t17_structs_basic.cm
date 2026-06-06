@@ -1,0 +1,15 @@
+// t17_structs_basic.cm — struct declare, field assign, field access
+// Expected output: 10  20  30
+struct Point {
+    int x;
+    int y;
+}
+function Master() returns nothing {
+    Point p;
+    p.x = 10;
+    p.y = 20;
+    print(p.x);
+    print(p.y);
+    int total = p.x + p.y;
+    print(total);
+}

@@ -1,0 +1,12 @@
+// t06_mixed_types.cm — all four scalar types in one function
+// Expected output: 7  2.71  1  65
+function Master() returns nothing {
+    int   i = 7;
+    float f = 2.71;
+    bool  b = true;
+    char  c = 'A';
+    print(i);
+    print(f);
+    print(b);
+    print(c);
+}

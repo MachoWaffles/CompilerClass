@@ -1,0 +1,10 @@
+// err06 — EXPECTED REJECTION: struct 'Point' has no field 'z'
+struct Point {
+    int x;
+    int y;
+}
+function Master() returns nothing {
+    Point p;
+    p.z = 99;
+    print(p.z);
+}

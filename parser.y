@@ -55,6 +55,9 @@ ASTNode* root = NULL;
 %token INC
 %token LE GE EQ NE
 
+/* Struct keyword */
+%token STRUCT
+
 /* ── NON-TERMINAL TYPES ─────────────────────────────────────────────────── */
 %type <node> program top_level_list top_level_item
 %type <node> stmt_list stmt decl assign expr print_stmt decAssign
@@ -62,6 +65,7 @@ ASTNode* root = NULL;
 %type <node> array_decl array_assign
 %type <str>  type
 %type <node> while_stmt for_stmt for_init for_update
+%type <node> struct_decl struct_var field_assign field_decl_list
 
 /* ── OPERATOR PRECEDENCE ────────────────────────────────────────────────── */
 %left EQ NE
@@ -85,6 +89,7 @@ top_level_list:
 top_level_item:
     stmt        { $$ = $1; }
     | func_decl { $$ = $1; }
+    | struct_decl { $$ = $1; }
     ;
 
 /* ── STATEMENT LIST (used inside function bodies) ────────────────────────── */
@@ -105,6 +110,8 @@ stmt:
     | array_assign
     | while_stmt
     | for_stmt
+    | struct_var
+    | field_assign
     ;
 
 /* ── TYPE NON-TERMINAL ───────────────────────────────────────────────────── */
@@ -377,6 +384,7 @@ expr:
     | ID '(' arg_list ')'  { $$ = createFuncCall($1, $3); free($1); }
     | ID '(' ')'           { $$ = createFuncCall($1, NULL); free($1); }
     | ID '[' expr ']'        { $$ = createArrayAccess($1, $3); free($1); }
+    | ID '.' ID              { $$ = createFieldAccess($1, $3); free($1); free($3); }
 
     | expr '+' expr         { $$ = createBinOp('+', $1, $3); }
     | expr '-' expr         { $$ = createBinOp('-', $1, $3); }
@@ -432,6 +440,38 @@ print_stmt:
         fprintf(stderr, "   Missing opening parenthesis after 'print'\n");
         $$ = NULL;
         yyerrok;
+    }
+    ;
+
+/* ── STRUCT DECLARATION ──────────────────────────────────────────────────── */
+/*
+ * struct Point { int x; int y; }
+ * field_decl_list is a list of plain "type name;" declarations.
+ */
+struct_decl:
+    STRUCT ID '{' field_decl_list '}' {
+        $$ = createStructDecl($2, $4);
+    }
+    ;
+
+field_decl_list:
+    decl                        { $$ = $1; }
+    | field_decl_list decl      { $$ = createStmtList($1, $2); }
+    ;
+
+/* ── STRUCT VARIABLE DECLARATION ─────────────────────────────────────────── */
+/* Point p;  — struct type name is a plain ID */
+struct_var:
+    ID ID ';' {
+        $$ = createStructVar($1, $2);
+    }
+    ;
+
+/* ── FIELD ASSIGNMENT ─────────────────────────────────────────────────────── */
+/* p.x = 5; */
+field_assign:
+    ID '.' ID '=' expr ';' {
+        $$ = createFieldAssign($1, $3, $5);
     }
     ;
 

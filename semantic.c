@@ -88,6 +88,21 @@ const char* getExprType(ASTNode* node) {
         case NODE_BOOL_LIT:  return "bool";
         case NODE_VAR:       return getVarType(node->data.name);   /* symtab lookup */
         case NODE_ARRAY_ACCESS: return getVarType(node->data.arrayAccess.name); /* symtab lookup */
+        case NODE_FIELD_ACCESS: {
+            /* Look up the struct variable type, then find the field type */
+            const char* vtype = getVarType(node->data.fieldAccess.varName);
+            if (!vtype) return "unknown";
+            int idx = -1;
+            int fc  = getStructFieldCount((char*)vtype);
+            for (int i = 0; i < fc; i++) {
+                if (strcmp(getStructFieldName((char*)vtype, i),
+                           node->data.fieldAccess.fieldName) == 0) {
+                    idx = i; break;
+                }
+            }
+            if (idx == -1) return "unknown";
+            return getStructFieldType((char*)vtype, idx);
+        }
             
         case NODE_BINOP: {
             const char* lt = getExprType(node->data.binop.left);
@@ -186,6 +201,29 @@ void analyzeExpr(ASTNode* node) {
             }
 
             analyzeExpr(node->data.arrayAccess.index);
+            break;
+        }
+
+        case NODE_FIELD_ACCESS: {
+            char* vname = node->data.fieldAccess.varName;
+            char* fname = node->data.fieldAccess.fieldName;
+            if (!isVarDeclared(vname)) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                    "Variable '%s' not declared (in field access '%s.%s')",
+                    vname, vname, fname);
+                reportSemanticError(msg);
+            } else {
+                const char* vtype = getVarType(vname);
+                if (vtype && getStructFieldOffset((char*)vtype, fname) == -1) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg),
+                        "Struct '%s' has no field '%s'", vtype, fname);
+                    reportSemanticError(msg);
+                } else {
+                    printf("  ✓ Field access '%s.%s' is valid\n", vname, fname);
+                }
+            }
             break;
         }
 
@@ -509,6 +547,90 @@ void analyzeStmt(ASTNode* node) {
             analyzeStmt(node->data.stmtlist.next);
             break;
 
+        case NODE_STRUCT_DECL: {
+            /* Register the struct type and all its fields */
+            char* sname = node->data.structDecl.name;
+            if (addStructDef(sname) == -1) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                    "Struct '%s' already defined", sname);
+                reportSemanticError(msg);
+                break;
+            }
+            /* Walk the field list (NODE_STMT_LIST of NODE_DECL) */
+            ASTNode* flist = node->data.structDecl.fields;
+            while (flist) {
+                ASTNode* fnode = NULL;
+                if (flist->type == NODE_DECL) {
+                    fnode = flist;
+                    flist = NULL;
+                } else if (flist->type == NODE_STMT_LIST) {
+                    fnode = flist->data.stmtlist.stmt;
+                    flist = flist->data.stmtlist.next;
+                } else {
+                    break;
+                }
+                if (fnode && fnode->type == NODE_DECL) {
+                    addStructField(sname,
+                                   fnode->data.decl.varType,
+                                   fnode->data.decl.name);
+                    printf("  ✓ Struct '%s' field '%s' (type: %s)\n",
+                           sname,
+                           fnode->data.decl.name,
+                           fnode->data.decl.varType);
+                }
+            }
+            printf("  ✓ Struct type '%s' defined (%d field(s))\n",
+                   sname, getStructFieldCount(sname));
+            break;
+        }
+
+        case NODE_STRUCT_VAR: {
+            char* stype = node->data.structVar.structType;
+            char* vname = node->data.structVar.varName;
+            if (!isStructDefined(stype)) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                    "Struct type '%s' is not defined (used for variable '%s')",
+                    stype, vname);
+                reportSemanticError(msg);
+                break;
+            }
+            int off = addStructVar(vname, stype);
+            if (off == -1) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                    "Variable '%s' already declared in this scope", vname);
+                reportSemanticError(msg);
+            } else {
+                markInitialized(vname);
+                printf("  ✓ Struct variable '%s' of type '%s' declared at offset %d\n",
+                       vname, stype, off);
+            }
+            break;
+        }
+
+        case NODE_FIELD_ASSIGN: {
+            char* vname = node->data.fieldAssign.varName;
+            char* fname = node->data.fieldAssign.fieldName;
+            const char* vtype = getVarType(vname);
+            if (!vtype) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                    "Variable '%s' not declared", vname);
+                reportSemanticError(msg);
+                break;
+            }
+            if (getStructFieldOffset((char*)vtype, fname) == -1) {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                    "Struct '%s' has no field '%s'", vtype, fname);
+                reportSemanticError(msg);
+            }
+            analyzeExpr(node->data.fieldAssign.value);
+            break;
+        }
+
         default:
             break;
     }
@@ -521,6 +643,7 @@ int analyzeProgram(ASTNode* root) {
 
     initSymTab();
     initFuncTab();
+    initStructTab();
 
     /* First pass: register all function signatures so forward calls work */
     registerFunctions(root);

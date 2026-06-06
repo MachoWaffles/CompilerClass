@@ -1,0 +1,14 @@
+// t12_functions_multiparams.cm — multiple params, function calling function
+// Expected output: 10  6
+function multiply(int a, int b) returns int {
+    return a * b;
+}
+function subtract(int a, int b) returns int {
+    return a - b;
+}
+function Master() returns nothing {
+    int r1 = multiply(2, 5);
+    print(r1);
+    int r2 = subtract(10, 4);
+    print(r2);
+}

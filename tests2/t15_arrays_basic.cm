@@ -1,0 +1,15 @@
+// t15_arrays_basic.cm — array declaration, element assign, element access
+// Expected output: 10  20  30  40  50
+function Master() returns nothing {
+    int arr[5];
+    arr[0] = 10;
+    arr[1] = 20;
+    arr[2] = 30;
+    arr[3] = 40;
+    arr[4] = 50;
+    print(arr[0]);
+    print(arr[1]);
+    print(arr[2]);
+    print(arr[3]);
+    print(arr[4]);
+}

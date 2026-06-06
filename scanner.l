@@ -43,6 +43,7 @@ int yycolno = 1;
 
 "while"         { if (displayTokens) printf("  TOKEN: WHILE keyword\n"); return WHILE; }
 "for"           { if (displayTokens) printf("  TOKEN: FOR keyword\n");   return FOR; }
+"struct"        { if (displayTokens) printf("  TOKEN: STRUCT keyword\n"); return STRUCT; }
 
 [a-zA-Z_][a-zA-Z0-9_]* {
     if (displayTokens) printf("  TOKEN: ID '%s'\n", yytext);
@@ -96,6 +97,7 @@ int yycolno = 1;
 "{"             { if (displayTokens) printf("  TOKEN: '{'\n"); return '{'; }
 "}"             { if (displayTokens) printf("  TOKEN: '}'\n"); return '}'; }
 ","             { if (displayTokens) printf("  TOKEN: ','\n"); return ','; }
+"."            { if (displayTokens) printf("  TOKEN: .\n"); return '.'; }
 
 [ \t]           { }
 \n              { yycolno = 1; }

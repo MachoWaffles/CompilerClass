@@ -1,0 +1,5 @@
+// err05 — EXPECTED REJECTION: struct type 'Ghost' not defined
+function Master() returns nothing {
+    Ghost g;
+    print(g.x);
+}

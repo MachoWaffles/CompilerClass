@@ -339,3 +339,124 @@ char* getFuncParamName(char* name, int idx) {
     }
     return NULL;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * STRUCT TYPE TABLE
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+static StructTable structtab;
+
+void initStructTab() {
+    structtab.count = 0;
+}
+
+int addStructDef(char* name) {
+    for (int i = 0; i < structtab.count; i++) {
+        if (strcmp(structtab.defs[i].name, name) == 0) {
+            fprintf(stderr,
+                "STRUCT TABLE ERROR: Struct '%s' already defined\n", name);
+            return -1;
+        }
+    }
+    if (structtab.count >= MAX_STRUCTS) {
+        fprintf(stderr, "STRUCT TABLE ERROR: Max struct definitions reached\n");
+        return -1;
+    }
+    StructDef* d = &structtab.defs[structtab.count++];
+    d->name       = strdup(name);
+    d->fieldCount = 0;
+    return 0;
+}
+
+int addStructField(char* structName, char* fieldType, char* fieldName) {
+    for (int i = 0; i < structtab.count; i++) {
+        if (strcmp(structtab.defs[i].name, structName) == 0) {
+            StructDef* d = &structtab.defs[i];
+            if (d->fieldCount >= MAX_FIELDS) {
+                fprintf(stderr,
+                    "STRUCT TABLE ERROR: Too many fields in '%s'\n", structName);
+                return -1;
+            }
+            /* Duplicate field check */
+            for (int j = 0; j < d->fieldCount; j++) {
+                if (strcmp(d->fieldNames[j], fieldName) == 0) {
+                    fprintf(stderr,
+                        "STRUCT TABLE ERROR: Field '%s' already in '%s'\n",
+                        fieldName, structName);
+                    return -1;
+                }
+            }
+            d->fieldTypes[d->fieldCount] = strdup(fieldType);
+            d->fieldNames[d->fieldCount] = strdup(fieldName);
+            d->fieldCount++;
+            return 0;
+        }
+    }
+    fprintf(stderr,
+        "STRUCT TABLE ERROR: Struct '%s' not defined\n", structName);
+    return -1;
+}
+
+int isStructDefined(char* name) {
+    for (int i = 0; i < structtab.count; i++)
+        if (strcmp(structtab.defs[i].name, name) == 0) return 1;
+    return 0;
+}
+
+int getStructFieldCount(char* name) {
+    for (int i = 0; i < structtab.count; i++)
+        if (strcmp(structtab.defs[i].name, name) == 0)
+            return structtab.defs[i].fieldCount;
+    return 0;
+}
+
+char* getStructFieldType(char* name, int idx) {
+    for (int i = 0; i < structtab.count; i++)
+        if (strcmp(structtab.defs[i].name, name) == 0)
+            return structtab.defs[i].fieldTypes[idx];
+    return NULL;
+}
+
+char* getStructFieldName(char* name, int idx) {
+    for (int i = 0; i < structtab.count; i++)
+        if (strcmp(structtab.defs[i].name, name) == 0)
+            return structtab.defs[i].fieldNames[idx];
+    return NULL;
+}
+
+/* Returns the byte offset of fieldName within structName (field index * 4).
+ * Returns -1 if the struct or field is not found. */
+int getStructFieldOffset(char* structName, char* fieldName) {
+    for (int i = 0; i < structtab.count; i++) {
+        if (strcmp(structtab.defs[i].name, structName) == 0) {
+            StructDef* d = &structtab.defs[i];
+            for (int j = 0; j < d->fieldCount; j++) {
+                if (strcmp(d->fieldNames[j], fieldName) == 0)
+                    return j * 4;
+            }
+            return -1;
+        }
+    }
+    return -1;
+}
+
+int getStructSize(char* name) {
+    for (int i = 0; i < structtab.count; i++)
+        if (strcmp(structtab.defs[i].name, name) == 0)
+            return structtab.defs[i].fieldCount * 4;
+    return 0;
+}
+
+/* Registers a struct variable in the variable symbol table, reserving
+ * fieldCount * 4 bytes (one word per field, same layout as arrays).
+ * The type stored is the struct type name so getVarType() returns it. */
+int addStructVar(char* varName, char* structTypeName) {
+    if (!isStructDefined(structTypeName)) {
+        fprintf(stderr,
+            "SYMBOL TABLE ERROR: Struct type '%s' not defined\n", structTypeName);
+        return -1;
+    }
+    int size = getStructSize(structTypeName);
+    /* Reuse addArray logic: it reserves size bytes starting at a base offset */
+    return addArray(varName, structTypeName, size / 4);
+}

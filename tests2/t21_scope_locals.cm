@@ -1,0 +1,19 @@
+// t21_scope_locals.cm — same var name in different function scopes, global unchanged
+// Expected output: 100  1  2  100
+int g = 100;
+function funcA() returns int {
+    int x = 1;
+    return x;
+}
+function funcB() returns int {
+    int x = 2;
+    return x;
+}
+function Master() returns nothing {
+    print(g);
+    int a = funcA();
+    print(a);
+    int b = funcB();
+    print(b);
+    print(g);
+}

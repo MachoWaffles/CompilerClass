@@ -329,5 +329,66 @@ void printAST(ASTNode* node, int level) {
             printf("BODY:\n");
             printAST(node->data.forStmt.body, level + 2);
             break;
+
+        case NODE_STRUCT_DECL:
+            printf("STRUCT_DECL: %s\n", node->data.structDecl.name);
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("FIELDS:\n");
+            printAST(node->data.structDecl.fields, level + 2);
+            break;
+
+        case NODE_STRUCT_VAR:
+            printf("STRUCT_VAR: %s %s\n",
+                node->data.structVar.structType,
+                node->data.structVar.varName);
+            break;
+
+        case NODE_FIELD_ACCESS:
+            printf("FIELD_ACCESS: %s.%s\n",
+                node->data.fieldAccess.varName,
+                node->data.fieldAccess.fieldName);
+            break;
+
+        case NODE_FIELD_ASSIGN:
+            printf("FIELD_ASSIGN: %s.%s =\n",
+                node->data.fieldAssign.varName,
+                node->data.fieldAssign.fieldName);
+            printAST(node->data.fieldAssign.value, level + 1);
+            break;
     }
+}
+
+/* ── STRUCT CONSTRUCTORS ─────────────────────────────────────────────────── */
+
+ASTNode* createStructDecl(char* name, ASTNode* fields) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_STRUCT_DECL;
+    node->data.structDecl.name   = strdup(name);
+    node->data.structDecl.fields = fields;
+    return node;
+}
+
+ASTNode* createStructVar(char* structType, char* varName) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_STRUCT_VAR;
+    node->data.structVar.structType = strdup(structType);
+    node->data.structVar.varName    = strdup(varName);
+    return node;
+}
+
+ASTNode* createFieldAccess(char* varName, char* fieldName) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_FIELD_ACCESS;
+    node->data.fieldAccess.varName   = strdup(varName);
+    node->data.fieldAccess.fieldName = strdup(fieldName);
+    return node;
+}
+
+ASTNode* createFieldAssign(char* varName, char* fieldName, ASTNode* value) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_FIELD_ASSIGN;
+    node->data.fieldAssign.varName   = strdup(varName);
+    node->data.fieldAssign.fieldName = strdup(fieldName);
+    node->data.fieldAssign.value     = value;
+    return node;
 }

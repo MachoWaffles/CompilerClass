@@ -81,11 +81,33 @@ int   getFuncParamCount(char* name);   /* -1 if not found */
 char* getFuncParamType(char* name, int idx);
 char* getFuncParamName(char* name, int idx);
 
-/* TODO: When arrays are added, the symbol table will need an additional
- * field in Symbol to track array size, and array-specific helpers:
- *   int addArray(char* name, char* type, int size);
- *   int getArraySize(char* name);
- *   int getArrayElementOffset(char* name, int index);
- */
+/* ── STRUCT TYPE TABLE ────────────────────────────────────────────────────── */
+#define MAX_STRUCTS     30   /* max struct type definitions              */
+#define MAX_FIELDS      20   /* max fields per struct                    */
+
+typedef struct {
+    char* name;                        /* struct type name, e.g. "Point" */
+    char* fieldNames[MAX_FIELDS];
+    char* fieldTypes[MAX_FIELDS];
+    int   fieldCount;
+} StructDef;
+
+typedef struct {
+    StructDef defs[MAX_STRUCTS];
+    int       count;
+} StructTable;
+
+void  initStructTab();
+int   addStructDef(char* name);                                  /* -1 = duplicate */
+int   addStructField(char* structName, char* fieldType, char* fieldName); /* -1 = error */
+int   isStructDefined(char* name);
+int   getStructFieldCount(char* name);
+char* getStructFieldType(char* name, int idx);
+char* getStructFieldName(char* name, int idx);
+int   getStructFieldOffset(char* structName, char* fieldName);   /* byte offset; -1 = not found */
+int   getStructSize(char* name);                                 /* total bytes = fieldCount * 4 */
+
+/* Registers a struct variable in the symbol table, reserving fieldCount*4 bytes. */
+int   addStructVar(char* varName, char* structTypeName);
 
 #endif

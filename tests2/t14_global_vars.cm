@@ -1,0 +1,18 @@
+// t14_global_vars.cm — global variable access and mutation from functions
+// Expected output: 0  10  20  30
+int counter;
+int step = 10;
+function increment() returns nothing {
+    counter = counter + step;
+    return;
+}
+function Master() returns nothing {
+    counter = 0;
+    print(counter);
+    increment();
+    print(counter);
+    increment();
+    print(counter);
+    increment();
+    print(counter);
+}

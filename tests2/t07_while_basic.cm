@@ -1,0 +1,14 @@
+// t07_while_basic.cm — while loop counting up and down
+// Expected output: 0 1 2 3 4  then  10 8 6 4 2
+function Master() returns nothing {
+    int i = 0;
+    while(i < 5) {
+        print(i);
+        i = i + 1;
+    }
+    int j = 10;
+    while(j > 0) {
+        print(j);
+        j = j - 2;
+    }
+}
