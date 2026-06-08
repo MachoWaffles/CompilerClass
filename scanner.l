@@ -41,6 +41,8 @@ int yycolno = 1;
 
 "print"         { if (displayTokens) printf("  TOKEN: PRINT keyword\n"); return PRINT; }
 
+"while"     { printf("  TOKEN: WHILE keyword\n"); return WHILE; }
+
 [a-zA-Z_][a-zA-Z0-9_]* {
     if (displayTokens) printf("  TOKEN: ID '%s'\n", yytext);
     yylval.str = strdup(yytext);
