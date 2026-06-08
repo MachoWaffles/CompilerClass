@@ -1,0 +1,15 @@
+// t11_functions_basic.cm — function call, return values, nothing return
+// Expected output: 7  42
+function addInts(int a, int b) returns int {
+    int result = a + b;
+    return result;
+}
+function printValue(int v) returns nothing {
+    print(v);
+    return;
+}
+function Master() returns nothing {
+    int s = addInts(3, 4);
+    print(s);
+    printValue(42);
+}

@@ -168,6 +168,17 @@ ASTNode* createWhile(ASTNode* condition, ASTNode* body) {
     return node;
 }
 
+ASTNode* createFor(ASTNode* init, ASTNode* condition,
+                   ASTNode* update, ASTNode* body) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_FOR;
+    node->data.forStmt.init      = init;
+    node->data.forStmt.condition = condition;
+    node->data.forStmt.update    = update;
+    node->data.forStmt.body      = body;
+    return node;
+}
+
 /* ── PRINT AST ────────────────────────────────────────────────────────────── */
 void printAST(ASTNode* node, int level) {
     if (!node) return;
@@ -190,11 +201,24 @@ void printAST(ASTNode* node, int level) {
         case NODE_VAR:
             printf("VAR: %s\n", node->data.name);
             break;
-        case NODE_BINOP:
-            printf("BINOP: %c\n", node->data.binop.op);
+        case NODE_BINOP: {
+            const char* opName;
+            switch (node->data.binop.op) {
+                case 'L': opName = "<="; break;
+                case 'G': opName = ">="; break;
+                case 'E': opName = "=="; break;
+                case 'N': opName = "!="; break;
+                default: {
+                    static char buf[2] = {0, 0};
+                    buf[0] = node->data.binop.op;
+                    opName = buf;
+                }
+            }
+            printf("BINOP: %s\n", opName);
             printAST(node->data.binop.left,  level + 1);
             printAST(node->data.binop.right, level + 1);
             break;
+        }
         case NODE_DECL:
             printf("DECL: %s %s\n", node->data.decl.varType, node->data.decl.name);
             break;
@@ -286,5 +310,85 @@ void printAST(ASTNode* node, int level) {
             printf("BODY:\n");
             printAST(node->data.whileStmt.body, level + 2);
             break;
+
+        case NODE_FOR:
+            printf("FOR\n");
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("INIT:\n");
+            printAST(node->data.forStmt.init, level + 2);
+
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("CONDITION:\n");
+            printAST(node->data.forStmt.condition, level + 2);
+
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("UPDATE:\n");
+            printAST(node->data.forStmt.update, level + 2);
+
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("BODY:\n");
+            printAST(node->data.forStmt.body, level + 2);
+            break;
+
+        case NODE_STRUCT_DECL:
+            printf("STRUCT_DECL: %s\n", node->data.structDecl.name);
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("FIELDS:\n");
+            printAST(node->data.structDecl.fields, level + 2);
+            break;
+
+        case NODE_STRUCT_VAR:
+            printf("STRUCT_VAR: %s %s\n",
+                node->data.structVar.structType,
+                node->data.structVar.varName);
+            break;
+
+        case NODE_FIELD_ACCESS:
+            printf("FIELD_ACCESS: %s.%s\n",
+                node->data.fieldAccess.varName,
+                node->data.fieldAccess.fieldName);
+            break;
+
+        case NODE_FIELD_ASSIGN:
+            printf("FIELD_ASSIGN: %s.%s =\n",
+                node->data.fieldAssign.varName,
+                node->data.fieldAssign.fieldName);
+            printAST(node->data.fieldAssign.value, level + 1);
+            break;
     }
+}
+
+/* ── STRUCT CONSTRUCTORS ─────────────────────────────────────────────────── */
+
+ASTNode* createStructDecl(char* name, ASTNode* fields) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_STRUCT_DECL;
+    node->data.structDecl.name   = strdup(name);
+    node->data.structDecl.fields = fields;
+    return node;
+}
+
+ASTNode* createStructVar(char* structType, char* varName) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_STRUCT_VAR;
+    node->data.structVar.structType = strdup(structType);
+    node->data.structVar.varName    = strdup(varName);
+    return node;
+}
+
+ASTNode* createFieldAccess(char* varName, char* fieldName) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_FIELD_ACCESS;
+    node->data.fieldAccess.varName   = strdup(varName);
+    node->data.fieldAccess.fieldName = strdup(fieldName);
+    return node;
+}
+
+ASTNode* createFieldAssign(char* varName, char* fieldName, ASTNode* value) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_FIELD_ASSIGN;
+    node->data.fieldAssign.varName   = strdup(varName);
+    node->data.fieldAssign.fieldName = strdup(fieldName);
+    node->data.fieldAssign.value     = value;
+    return node;
 }

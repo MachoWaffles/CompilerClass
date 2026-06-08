@@ -34,6 +34,8 @@ static void resetTemps() {
 
 /* ── UNIQUE LABEL COUNTER ───────────────────────────────────────────────── */
 static int printLabelCount = 0;
+static int loopLabelCount  = 0;
+static int inForInit       = 0;  /* suppresses duplicate-decl error in for init */
 
 /* ── FORWARD DECLARATIONS ───────────────────────────────────────────────── */
 static int         genExpr(ASTNode* node);
@@ -131,9 +133,10 @@ static int genExpr(ASTNode* node) {
 
             int r = getNextTemp();
 
-            if (isVarGlobal(node->data.name))
-                fprintf(output, "    lw $t%d, %d($sp)\n", r, offset);
-            else
+            if (isVarGlobal(node->data.name)) {
+                fprintf(output, "    la  $t%d, _g_%s\n", r, node->data.name);
+                fprintf(output, "    lw  $t%d, 0($t%d)\n", r, r);
+            } else
                 fprintf(output, "    lw $t%d, %d($fp)\n", r, offset);
 
             return r;
@@ -222,6 +225,30 @@ static int genExpr(ASTNode* node) {
                                 lR);
                         break;
 
+                    /* ── Comparison operators — result is 0 (false) or 1 (true) ── */
+                    case '<':
+                        fprintf(output, "    slt $t%d, $t%d, $t%d\n", lR, lR, rR);
+                        break;
+                    case '>':
+                        fprintf(output, "    slt $t%d, $t%d, $t%d\n", lR, rR, lR);
+                        break;
+                    case 'L': /* <= */
+                        fprintf(output, "    slt $t%d, $t%d, $t%d\n", lR, rR, lR);
+                        fprintf(output, "    xori $t%d, $t%d, 1\n",   lR, lR);
+                        break;
+                    case 'G': /* >= */
+                        fprintf(output, "    slt $t%d, $t%d, $t%d\n", lR, lR, rR);
+                        fprintf(output, "    xori $t%d, $t%d, 1\n",   lR, lR);
+                        break;
+                    case 'E': /* == */
+                        fprintf(output, "    xor  $t%d, $t%d, $t%d\n", lR, lR, rR);
+                        fprintf(output, "    sltiu $t%d, $t%d, 1\n",   lR, lR);
+                        break;
+                    case 'N': /* != */
+                        fprintf(output, "    xor  $t%d, $t%d, $t%d\n", lR, lR, rR);
+                        fprintf(output, "    sltu $t%d, $zero, $t%d\n", lR, lR);
+                        break;
+
                     default:
                         fprintf(stderr,
                                 "\n❌ Unsupported binary operator '%c'\n",
@@ -284,6 +311,59 @@ static int genExpr(ASTNode* node) {
             return retR;
         }
 
+        case NODE_ARRAY_ACCESS: {
+            const char* arrName = node->data.arrayAccess.name;
+            int base = getVarOffset((char*)arrName);
+            if (base == -1) {
+                fprintf(stderr,
+                        "\n❌ Code Generation Error: Array '%s' not found\n",
+                        arrName);
+                exit(1);
+            }
+
+            int idxR = genExpr(node->data.arrayAccess.index);
+            fprintf(output, "    sll $t%d, $t%d, 2\n", idxR, idxR);
+
+            int addrR = getNextTemp();
+            if (isVarGlobal(arrName))
+                fprintf(output, "    la  $t%d, _g_%s\n", addrR, arrName);
+            else
+                fprintf(output, "    addi $t%d, $fp, %d\n", addrR, base);
+
+            fprintf(output, "    add  $t%d, $t%d, $t%d\n", addrR, addrR, idxR);
+            free_temp(idxR);
+            fprintf(output, "    lw   $t%d, 0($t%d)\n", addrR, addrR);
+            return addrR;
+        }
+
+        case NODE_FIELD_ACCESS: {
+            /* address = struct_base_offset + field_index * 4 */
+            const char* vname = node->data.fieldAccess.varName;
+            const char* fname = node->data.fieldAccess.fieldName;
+            int base = getVarOffset((char*)vname);
+            if (base == -1) {
+                fprintf(stderr,
+                    "\n❌ Code Generation Error: Struct variable '%s' not found\n", vname);
+                exit(1);
+            }
+            const char* vtype = getVarType((char*)vname);
+            int fieldOff = getStructFieldOffset((char*)vtype, (char*)fname);
+            if (fieldOff == -1) {
+                fprintf(stderr,
+                    "\n❌ Code Generation Error: Field '%s' not in struct '%s'\n",
+                    fname, vtype);
+                exit(1);
+            }
+            int r = getNextTemp();
+            fprintf(output, "    # field access %s.%s\n", vname, fname);
+            if (isVarGlobal(vname)) {
+                fprintf(output, "    la  $t%d, _g_%s\n", r, vname);
+                fprintf(output, "    lw  $t%d, %d($t%d)\n", r, fieldOff, r);
+            } else
+                fprintf(output, "    lw   $t%d, %d($fp)\n", r, base + fieldOff);
+            return r;
+        }
+
         default:
             return -1;
     }
@@ -299,9 +379,25 @@ static int countLocals(ASTNode* node) {
         node->type == NODE_DEC_ASSIGN)
         return 1;
 
+    /* Arrays need size slots, not just 1 */
+    if (node->type == NODE_ARRAY_DECL)
+        return node->data.arrayDecl.size;
+
+    /* Struct vars occupy one word per field */
+    if (node->type == NODE_STRUCT_VAR)
+        return getStructFieldCount(node->data.structVar.structType);
+
     if (node->type == NODE_STMT_LIST)
         return countLocals(node->data.stmtlist.stmt)
              + countLocals(node->data.stmtlist.next);
+
+    /* A for-loop init may declare a new variable (int i = 0) */
+    if (node->type == NODE_FOR)
+        return countLocals(node->data.forStmt.init)
+             + countLocals(node->data.forStmt.body);
+
+    if (node->type == NODE_WHILE)
+        return countLocals(node->data.whileStmt.body);
 
     return 0;
 }
@@ -470,14 +566,13 @@ static void genStmt(ASTNode* node) {
 
             int r = genExpr(node->data.assign.value);
 
-            if (isVarGlobal(node->data.assign.var))
-                fprintf(output,
-                        "    sw $t%d, %d($sp)\n",
-                        r, offset);
-            else
-                fprintf(output,
-                        "    sw $t%d, %d($fp)\n",
-                        r, offset);
+            if (isVarGlobal(node->data.assign.var)) {
+                int addrR = getNextTemp();
+                fprintf(output, "    la  $t%d, _g_%s\n", addrR, node->data.assign.var);
+                fprintf(output, "    sw  $t%d, 0($t%d)\n", r, addrR);
+                free_temp(addrR);
+            } else
+                fprintf(output, "    sw $t%d, %d($fp)\n", r, offset);
 
             free_temp(r);
             resetTemps();
@@ -490,21 +585,19 @@ static void genStmt(ASTNode* node) {
             int offset;
 
             if (strcmp(getCurrentScope(), "global") == 0) {
-                offset =
-                    getVarOffset(node->data.DecAssignNode.name);
+                offset = getVarOffset(node->data.DecAssignNode.name);
             }
             else {
-
-                offset =
-                    addVar(node->data.DecAssignNode.name,
-                           node->data.DecAssignNode.varType);
+                offset = inForInit
+                    ? addOrReuseVar(node->data.DecAssignNode.name,
+                                    node->data.DecAssignNode.varType)
+                    : addVar(node->data.DecAssignNode.name,
+                             node->data.DecAssignNode.varType);
 
                 if (offset == -1) {
-
                     fprintf(stderr,
                             "\n❌ Code Generation Error: Variable '%s' already declared\n",
                             node->data.DecAssignNode.name);
-
                     exit(1);
                 }
             }
@@ -519,11 +612,12 @@ static void genStmt(ASTNode* node) {
 
             const char* scope = getCurrentScope();
 
-            if (strcmp(scope, "global") == 0)
-                fprintf(output,
-                        "    sw $t%d, %d($sp)\n",
-                        r, offset);
-            else
+            if (strcmp(scope, "global") == 0) {
+                int addrR = getNextTemp();
+                fprintf(output, "    la  $t%d, _g_%s\n", addrR, node->data.DecAssignNode.name);
+                fprintf(output, "    sw  $t%d, 0($t%d)\n", r, addrR);
+                free_temp(addrR);
+            } else
                 fprintf(output,
                         "    sw $t%d, %d($fp)\n",
                         r, offset);
@@ -534,8 +628,63 @@ static void genStmt(ASTNode* node) {
             break;
         }
 
-        case NODE_PRINT: {
+        case NODE_ARRAY_DECL: {
+            /* Register the array in the symbol table, reserving size*4 bytes.
+             * In global scope this was already done by preRegisterGlobals;
+             * in a function scope we register it now during codegen. */
+            if (strcmp(getCurrentScope(), "global") != 0) {
+                int offset = addArray(node->data.arrayDecl.name,
+                                      node->data.arrayDecl.type,
+                                      node->data.arrayDecl.size);
+                fprintf(output,
+                        "    # array %s %s[%d] at fp+%d\n",
+                        node->data.arrayDecl.type,
+                        node->data.arrayDecl.name,
+                        node->data.arrayDecl.size,
+                        offset);
+            }
+            break;
+        }
 
+        case NODE_ARRAY_ASSIGN: {
+            /* Evaluate RHS FIRST so any jal inside it doesn't clobber
+             * the address registers we compute afterward. */
+            const char* arrName = node->data.arrayAssign.name;
+            int base = getVarOffset((char*)arrName);
+            if (base == -1) {
+                fprintf(stderr,
+                        "\n❌ Code Generation Error: Array '%s' not declared\n",
+                        arrName);
+                exit(1);
+            }
+
+            /* 1. Evaluate the value to store */
+            int valR = genExpr(node->data.arrayAssign.value);
+
+            /* 2. Evaluate the index (no more jal possible after this) */
+            int idxR = genExpr(node->data.arrayAssign.index);
+            fprintf(output, "    sll $t%d, $t%d, 2\n", idxR, idxR);
+
+            /* 3. Compute address */
+            int addrR = getNextTemp();
+            if (isVarGlobal(arrName))
+                fprintf(output, "    la  $t%d, _g_%s\n", addrR, arrName);
+            else
+                fprintf(output, "    addi $t%d, $fp, %d\n", addrR, base);
+
+            fprintf(output, "    add  $t%d, $t%d, $t%d\n", addrR, addrR, idxR);
+            free_temp(idxR);
+
+            /* 4. Store */
+            fprintf(output, "    sw   $t%d, 0($t%d)\n", valR, addrR);
+
+            free_temp(valR);
+            free_temp(addrR);
+            resetTemps();
+            break;
+        }
+
+        case NODE_PRINT: {
             ASTNode* expr = node->data.expr;
 
             /* Infer the type of the expression being printed */
@@ -618,6 +767,121 @@ static void genStmt(ASTNode* node) {
 
             break;
 
+        case NODE_WHILE: {
+            int lbl = loopLabelCount++;
+            fprintf(output, "\n_while_start_%d:\n", lbl);
+
+            /* Evaluate condition; branch past body if false (== 0) */
+            int condR = genExpr(node->data.whileStmt.condition);
+            fprintf(output, "    beq $t%d, $zero, _while_end_%d\n", condR, lbl);
+            free_temp(condR);
+            resetTemps();
+
+            genStmt(node->data.whileStmt.body);
+
+            fprintf(output, "    j _while_start_%d\n", lbl);
+            fprintf(output, "_while_end_%d:\n\n", lbl);
+
+            break;
+        }
+
+        case NODE_FOR: {
+            int lbl = loopLabelCount++;
+
+            /* Init — a DEC_ASSIGN (int i = 0) or ASSIGN (i = 0) */
+            inForInit = 1;
+            genStmt(node->data.forStmt.init);
+            inForInit = 0;
+            resetTemps();
+
+            fprintf(output, "\n_for_start_%d:\n", lbl);
+
+            /* Condition — branch past body if false */
+            int condR = genExpr(node->data.forStmt.condition);
+            fprintf(output, "    beq $t%d, $zero, _for_end_%d\n", condR, lbl);
+            free_temp(condR);
+            resetTemps();
+
+            /* Body */
+            genStmt(node->data.forStmt.body);
+
+            /* Update — always an ASSIGN (i = i + 1, or desugared i++) */
+            genStmt(node->data.forStmt.update);
+            resetTemps();
+
+            fprintf(output, "    j _for_start_%d\n", lbl);
+            fprintf(output, "_for_end_%d:\n\n", lbl);
+
+            break;
+        }
+
+        /* These node types are expression nodes handled by genExpr, or
+         * structural nodes (PARAM_DECL, FUNC_DECL) handled elsewhere.
+         * They should never arrive at genStmt; list them explicitly to
+         * satisfy -Wswitch and document the intentional no-op. */
+        case NODE_NUM:
+        case NODE_VAR:
+        case NODE_BINOP:
+        case NODE_FLOAT_LIT:
+        case NODE_CHAR_LIT:
+        case NODE_BOOL_LIT:
+        case NODE_ARRAY_ACCESS:
+        case NODE_FIELD_ACCESS:   /* expression node — handled by genExpr */
+        case NODE_PARAM_DECL:
+        case NODE_FUNC_DECL:
+            break;
+
+        case NODE_STRUCT_DECL:
+            /* Pure type definition — no code emitted; already registered by
+             * preRegisterGlobals / semantic analysis. */
+            break;
+
+        case NODE_STRUCT_VAR: {
+            /* Declare a struct variable in local scope (global handled by
+             * preRegisterGlobals). */
+            if (strcmp(getCurrentScope(), "global") != 0) {
+                addStructVar(node->data.structVar.varName,
+                             node->data.structVar.structType);
+                fprintf(output, "    # struct %s %s (local)\n",
+                        node->data.structVar.structType,
+                        node->data.structVar.varName);
+            }
+            break;
+        }
+
+        case NODE_FIELD_ASSIGN: {
+            /* Evaluate RHS, store into struct_base + field_offset */
+            const char* vname = node->data.fieldAssign.varName;
+            const char* fname = node->data.fieldAssign.fieldName;
+            int base = getVarOffset((char*)vname);
+            if (base == -1) {
+                fprintf(stderr,
+                    "\n❌ Code Generation Error: Struct variable '%s' not found\n",
+                    vname);
+                exit(1);
+            }
+            const char* vtype = getVarType((char*)vname);
+            int fieldOff = getStructFieldOffset((char*)vtype, (char*)fname);
+            if (fieldOff == -1) {
+                fprintf(stderr,
+                    "\n❌ Code Generation Error: Field '%s' not in struct '%s'\n",
+                    fname, vtype);
+                exit(1);
+            }
+            int valR = genExpr(node->data.fieldAssign.value);
+            fprintf(output, "    # field assign %s.%s\n", vname, fname);
+            if (isVarGlobal(vname)) {
+                int addrR = getNextTemp();
+                fprintf(output, "    la  $t%d, _g_%s\n", addrR, vname);
+                fprintf(output, "    sw  $t%d, %d($t%d)\n", valR, fieldOff, addrR);
+                free_temp(addrR);
+            } else
+                fprintf(output, "    sw   $t%d, %d($fp)\n", valR, base + fieldOff);
+            free_temp(valR);
+            resetTemps();
+            break;
+        }
+
         default:
             break;
     }
@@ -665,14 +929,71 @@ static void preRegisterGlobals(ASTNode* node) {
     }
 
     if (node->type == NODE_DECL) {
-
-        addVar(node->data.decl.name,
-               node->data.decl.varType);
+        addVar(node->data.decl.name, node->data.decl.varType);
     }
     else if (node->type == NODE_DEC_ASSIGN) {
+        addVar(node->data.DecAssignNode.name, node->data.DecAssignNode.varType);
+    }
+    else if (node->type == NODE_ARRAY_DECL) {
+        addArray(node->data.arrayDecl.name,
+                 node->data.arrayDecl.type,
+                 node->data.arrayDecl.size);
+    }
+    else if (node->type == NODE_STRUCT_DECL) {
+        /* Register the struct type definition so subsequent NODE_STRUCT_VAR
+         * nodes in global scope can call addStructVar. */
+        char* sname = node->data.structDecl.name;
+        addStructDef(sname);
+        ASTNode* flist = node->data.structDecl.fields;
+        while (flist) {
+            ASTNode* fnode = NULL;
+            if (flist->type == NODE_DECL) {
+                fnode = flist; flist = NULL;
+            } else if (flist->type == NODE_STMT_LIST) {
+                fnode = flist->data.stmtlist.stmt;
+                flist = flist->data.stmtlist.next;
+            } else { break; }
+            if (fnode && fnode->type == NODE_DECL)
+                addStructField(sname, fnode->data.decl.varType, fnode->data.decl.name);
+        }
+    }
+    else if (node->type == NODE_STRUCT_VAR) {
+        addStructVar(node->data.structVar.varName,
+                     node->data.structVar.structType);
+    }
+}
 
-        addVar(node->data.DecAssignNode.name,
-               node->data.DecAssignNode.varType);
+/* ── EMIT GLOBAL DATA LABELS ─────────────────────────────────────────────── */
+/* Walk the top-level AST and emit a .word/.space label for every global
+ * variable, array, or struct variable. Scalar globals: _g_name: .word 0
+ * Arrays / struct vars: _g_name: .space N  (N = size * 4 bytes)          */
+static void emitGlobalData(ASTNode* node) {
+    if (!node) return;
+    if (node->type == NODE_STMT_LIST) {
+        emitGlobalData(node->data.stmtlist.stmt);
+        emitGlobalData(node->data.stmtlist.next);
+        return;
+    }
+    if (node->type == NODE_FUNC_DECL) return;  /* skip functions */
+
+    if (node->type == NODE_DECL || node->type == NODE_DEC_ASSIGN) {
+        const char* name = (node->type == NODE_DECL)
+            ? node->data.decl.name
+            : node->data.DecAssignNode.name;
+        fprintf(output, "_g_%s: .word 0\n", name);
+    }
+    else if (node->type == NODE_ARRAY_DECL) {
+        fprintf(output, "_g_%s: .space %d\n",
+                node->data.arrayDecl.name,
+                node->data.arrayDecl.size * 4);
+    }
+    else if (node->type == NODE_STRUCT_DECL) {
+        /* type definition only — no storage */
+    }
+    else if (node->type == NODE_STRUCT_VAR) {
+        int sz = getStructSize(node->data.structVar.structType);
+        fprintf(output, "_g_%s: .space %d\n",
+                node->data.structVar.varName, sz > 0 ? sz : 4);
     }
 }
 
@@ -682,46 +1003,42 @@ void generateMIPS(ASTNode* root, const char* filename) {
     output = fopen(filename, "w");
 
     if (!output) {
-
-        fprintf(stderr,
-                "\n❌ Cannot open output file '%s'\n\n",
-                filename);
-
+        fprintf(stderr, "\n❌ Cannot open output file '%s'\n\n", filename);
         exit(1);
     }
 
     initSymTab();
+    initStructTab();
 
-    /* Register globals BEFORE function generation */
+    /* Register globals in symtab (offsets not used for scalars anymore,
+     * but arrays still need offset tracking within their label block). */
     preRegisterGlobals(root);
 
-    /* .data section — bool string literals */
+    /* ── .data section ──────────────────────────────────────────────────── */
     fprintf(output, ".data\n");
     fprintf(output, "_str_true:  .asciiz \"true\"\n");
-    fprintf(output, "_str_false: .asciiz \"false\"\n\n");
+    fprintf(output, "_str_false: .asciiz \"false\"\n");
 
-    fprintf(output, ".text\n\n");
+    /* Emit a label + storage for every global variable/array/struct */
+    emitGlobalData(root);
+
+    fprintf(output, "\n.text\n\n");
 
     genAllFunctions(root);
 
+    /* ── main: initialise globals then call Master ──────────────────────── */
     fprintf(output, "\n.globl main\n");
     fprintf(output, "main:\n");
+    fprintf(output, "    addi $sp, $sp, -8\n");
+    fprintf(output, "    sw   $ra, 4($sp)\n\n");
 
-    fprintf(output,
-            "    addi $sp, $sp, -400\n\n");
+    genTopLevelStmts(root);   /* runs initialisers like  int step = 10  */
 
-    genTopLevelStmts(root);
-
-    fprintf(output, "\n    jal _Master\n");
-
-    fprintf(output,
-            "\n    addi $sp, $sp, 400\n");
-
-    fprintf(output,
-            "    li   $v0, 10\n");
-
-    fprintf(output,
-            "    syscall\n");
+    fprintf(output, "\n    jal _Master\n\n");
+    fprintf(output, "    lw   $ra, 4($sp)\n");
+    fprintf(output, "    addi $sp, $sp, 8\n");
+    fprintf(output, "    li   $v0, 10\n");
+    fprintf(output, "    syscall\n");
 
     fclose(output);
 }

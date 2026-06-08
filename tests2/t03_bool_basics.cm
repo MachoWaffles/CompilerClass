@@ -1,0 +1,14 @@
+// t03_bool_basics.cm — bool literals and variables
+// Expected output: 1  0  1  0
+function Master() returns nothing {
+    bool t = true;
+    print(t);
+    bool f = false;
+    print(f);
+    bool t2;
+    t2 = true;
+    print(t2);
+    bool f2;
+    f2 = false;
+    print(f2);
+}

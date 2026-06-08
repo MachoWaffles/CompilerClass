@@ -1,0 +1,11 @@
+// t04_char_basics.cm — char literals and variables
+// Expected output: 65  66  67
+function Master() returns nothing {
+    char a = 'A';
+    print(a);
+    char b = 'B';
+    print(b);
+    char c;
+    c = 'C';
+    print(c);
+}

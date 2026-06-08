@@ -42,6 +42,8 @@ int yycolno = 1;
 "print"         { if (displayTokens) printf("  TOKEN: PRINT keyword\n"); return PRINT; }
 
 "while"     { printf("  TOKEN: WHILE keyword\n"); return WHILE; }
+"for"           { if (displayTokens) printf("  TOKEN: FOR keyword\n");   return FOR; }
+"struct"        { if (displayTokens) printf("  TOKEN: STRUCT keyword\n"); return STRUCT; }
 
 [a-zA-Z_][a-zA-Z0-9_]* {
     if (displayTokens) printf("  TOKEN: ID '%s'\n", yytext);
@@ -55,12 +57,14 @@ int yycolno = 1;
     return FLOAT_LIT;
 }
 
-"++"            {
-    fprintf(stderr, "\nLexical Error at line %d, col %d:\n", yylineno, (int)(yycolno - yyleng));
-    fprintf(stderr, "   Consecutive '+' operators ('++') are not supported\n");
-    fprintf(stderr, "   Suggestion: Use 'x = x + 1;' instead\n\n");
-    exit(1);
-}
+"++"            { if (displayTokens) printf("  TOKEN: '++'\n"); return INC; }
+
+"<="            { if (displayTokens) printf("  TOKEN: '<='\n"); return LE; }
+">="            { if (displayTokens) printf("  TOKEN: '>='\n"); return GE; }
+"=="            { if (displayTokens) printf("  TOKEN: '=='\n"); return EQ; }
+"!="            { if (displayTokens) printf("  TOKEN: '!='\n"); return NE; }
+"<"             { if (displayTokens) printf("  TOKEN: '<'\n");  return '<'; }
+">"             { if (displayTokens) printf("  TOKEN: '>'\n");  return '>'; }
 
 [0-9]+          {
     if (displayTokens) printf("  TOKEN: NUM %s\n", yytext);
@@ -93,6 +97,7 @@ int yycolno = 1;
 "{"             { if (displayTokens) printf("  TOKEN: '{'\n"); return '{'; }
 "}"             { if (displayTokens) printf("  TOKEN: '}'\n"); return '}'; }
 ","             { if (displayTokens) printf("  TOKEN: ','\n"); return ','; }
+"."            { if (displayTokens) printf("  TOKEN: .\n"); return '.'; }
 
 [ \t]           { }
 \n              { yycolno = 1; }

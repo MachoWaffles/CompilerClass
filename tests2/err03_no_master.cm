@@ -1,0 +1,5 @@
+// err03 — EXPECTED REJECTION: no Master() entry point
+int x = 42;
+function helper() returns nothing {
+    print(x);
+}

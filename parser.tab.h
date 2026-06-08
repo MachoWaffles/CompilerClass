@@ -68,7 +68,15 @@ extern int yydebug;
     FUNCTION = 269,                /* FUNCTION  */
     RETURNS = 270,                 /* RETURNS  */
     RETURN_KW = 271,               /* RETURN_KW  */
-    PRINT = 272                    /* PRINT  */
+    PRINT = 272,                   /* PRINT  */
+    WHILE = 273,                   /* WHILE  */
+    FOR = 274,                     /* FOR  */
+    INC = 275,                     /* INC  */
+    LE = 276,                      /* LE  */
+    GE = 277,                      /* GE  */
+    EQ = 278,                      /* EQ  */
+    NE = 279,                      /* NE  */
+    STRUCT = 280                   /* STRUCT  */
   };
   typedef enum yytokentype yytoken_kind_t;
 #endif
@@ -84,7 +92,7 @@ union YYSTYPE
     char* str;          /* identifiers and type strings */
     struct ASTNode* node;
 
-#line 88 "parser.tab.h"
+#line 96 "parser.tab.h"
 
 };
 typedef union YYSTYPE YYSTYPE;

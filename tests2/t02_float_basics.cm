@@ -1,0 +1,13 @@
+// t02_float_basics.cm — float declaration, assignment, arithmetic
+// Expected output: 3.14  6.28  4.0
+function Master() returns nothing {
+    float pi = 3.14;
+    print(pi);
+    float two_pi = pi + pi;
+    print(two_pi);
+    float x;
+    x = 1.5;
+    float y = 2.5;
+    float z = x + y;
+    print(z);
+}

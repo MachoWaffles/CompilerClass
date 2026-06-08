@@ -35,7 +35,14 @@ typedef enum {
     NODE_ARRAY_ASSIGN, /* Array assignment, e.g. arr[0] = 5; */
     NODE_ARRAY_ACCESS,  /* Array access, e.g. arr[0] */
 
-    NODE_WHILE
+    NODE_WHILE,
+    NODE_FOR,         /* for (init; condition; update) { body } */
+
+    /* Struct support */
+    NODE_STRUCT_DECL,   /* struct Point { int x; int y; }  — type definition */
+    NODE_STRUCT_VAR,    /* Point p;  — variable of a struct type */
+    NODE_FIELD_ACCESS,  /* p.x  — read a field */
+    NODE_FIELD_ASSIGN   /* p.x = 5;  — write a field */
 } NodeType;
 
 typedef struct ASTNode {
@@ -135,6 +142,39 @@ typedef struct ASTNode {
             struct ASTNode* body;
         } whileStmt;
 
+        /* NODE_FOR */
+        struct {
+            struct ASTNode* init;       /* e.g. int i = 0  or  i = 0 */
+            struct ASTNode* condition;  /* loop test expression         */
+            struct ASTNode* update;     /* e.g. i = i + 1               */
+            struct ASTNode* body;       /* stmt_list (or NULL)           */
+        } forStmt;
+
+        /* NODE_STRUCT_DECL — defines a new struct type */
+        struct {
+            char* name;              /* struct type name, e.g. "Point" */
+            struct ASTNode* fields;  /* NODE_STMT_LIST of NODE_DECL nodes */
+        } structDecl;
+
+        /* NODE_STRUCT_VAR — declares a variable of a struct type */
+        struct {
+            char* structType;  /* the struct type name, e.g. "Point" */
+            char* varName;     /* the variable name, e.g. "p"        */
+        } structVar;
+
+        /* NODE_FIELD_ACCESS — reads one field: p.x */
+        struct {
+            char* varName;    /* the struct variable */
+            char* fieldName;  /* the field being read */
+        } fieldAccess;
+
+        /* NODE_FIELD_ASSIGN — writes one field: p.x = expr */
+        struct {
+            char* varName;    /* the struct variable */
+            char* fieldName;  /* the field being written */
+            struct ASTNode* value;
+        } fieldAssign;
+
     } data;
 } ASTNode;
 
@@ -159,6 +199,13 @@ ASTNode* createArrayDecl(char* type, char* name, int size);
 ASTNode* createArrayAssign(char* name, ASTNode* index, ASTNode* value);
 ASTNode* createArrayAccess(char* name, ASTNode* index);
 ASTNode* createWhile(ASTNode* condition, ASTNode* body);
+ASTNode* createFor(ASTNode* init, ASTNode* condition, ASTNode* update, ASTNode* body);
+
+/* Struct constructors */
+ASTNode* createStructDecl(char* name, ASTNode* fields);
+ASTNode* createStructVar(char* structType, char* varName);
+ASTNode* createFieldAccess(char* varName, char* fieldName);
+ASTNode* createFieldAssign(char* varName, char* fieldName, ASTNode* value);
 
 /* ── DISPLAY ─────────────────────────────────────────────────────────────── */
 void printAST(ASTNode* node, int level);

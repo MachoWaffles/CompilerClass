@@ -1,0 +1,19 @@
+// t01_int_basics.cm — int declaration, assignment, arithmetic
+// Expected output: 5  3  8  2  15  1  16
+function Master() returns nothing {
+    int a;
+    a = 5;
+    print(a);
+    int b = 3;
+    print(b);
+    int sum = a + b;
+    print(sum);
+    int diff = a - b;
+    print(diff);
+    int prod = a * b;
+    print(prod);
+    int quot = a / b;
+    print(quot);
+    int compound = (a + b) * 2;
+    print(compound);
+}

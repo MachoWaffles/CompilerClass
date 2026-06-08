@@ -1,0 +1,6 @@
+// err02 — EXPECTED REJECTION: 'x' declared twice
+function Master() returns nothing {
+    int x = 5;
+    int x = 10;
+    print(x);
+}

@@ -1,0 +1,20 @@
+// t13_forward_ref.cm — Master calls functions declared after it
+// Expected output: 8  15
+function Master() returns nothing {
+    int a = addTwo(3, 5);
+    print(a);
+    int b = sumTo(5);
+    print(b);
+}
+function addTwo(int x, int y) returns int {
+    return x + y;
+}
+function sumTo(int n) returns int {
+    int total = 0;
+    int i = 1;
+    while(i <= n) {
+        total = total + i;
+        i = i + 1;
+    }
+    return total;
+}

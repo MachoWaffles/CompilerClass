@@ -1,0 +1,8 @@
+// err04 — EXPECTED REJECTION: wrong number of arguments
+function add(int a, int b) returns int {
+    return a + b;
+}
+function Master() returns nothing {
+    int r = add(1, 2, 3);
+    print(r);
+}

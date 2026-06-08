@@ -1,0 +1,58 @@
+# Three-Address Code (TAC) - Optimized
+
+ 1: FUNC_BEGIN Test1
+ 2: FUNC_END Test1
+ 3: FUNC_BEGIN Test2
+ 4: FUNC_END Test2
+ 5: FUNC_BEGIN Test3
+ 6: FUNC_END Test3
+ 7: FUNC_BEGIN Test4
+ 8: FUNC_END Test4
+ 9: FUNC_BEGIN Test5
+10: DECL int j
+11: j = 10
+12: FUNC_END Test5
+13: FUNC_BEGIN Test6
+14: DECL int sum
+15: sum = 0
+16: PRINT 0
+17: FUNC_END Test6
+18: FUNC_BEGIN Test7
+19: FUNC_END Test7
+20: FUNC_BEGIN Test8
+21: FUNC_END Test8
+22: FUNC_BEGIN Test9
+23: FUNC_END Test9
+24: FUNC_BEGIN Test10
+25: FUNC_END Test10
+26: FUNC_BEGIN Test11
+27: FUNC_END Test11
+28: FUNC_BEGIN Test12
+29: PRINT 99
+30: FUNC_END Test12
+31: FUNC_BEGIN Test13
+32: DECL int arr
+33: FUNC_END Test13
+34: FUNC_BEGIN add
+35: DECL int a
+36: DECL int b
+37: t0 = a + b
+38: RETURN t0
+39: FUNC_END add
+40: FUNC_BEGIN Test14
+41: FUNC_END Test14
+42: FUNC_BEGIN sumTo
+43: DECL int n
+44: DECL int total
+45: total = 0
+46: RETURN total
+47: FUNC_END sumTo
+48: FUNC_BEGIN Test15
+49: DECL int s
+50: P0 = 5
+51: t1 = CALL sumTo
+52: s = t1
+53: PRINT t1
+54: FUNC_END Test15
+55: FUNC_BEGIN Master
+56: FUNC_END Master

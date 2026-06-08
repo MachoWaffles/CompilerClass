@@ -1,0 +1,10 @@
+// t20_comments.cm — single-line and multi-line comments ignored
+// Expected output: 42
+/* This block is a comment */
+function Master() returns nothing {
+    int x = 42;  // inline comment
+    /* multi
+       line */
+    // print(999);
+    print(x);
+}

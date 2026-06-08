@@ -89,7 +89,64 @@ int addVar(char* name, char* type) {
     return offset;
 }
 
-/* ── LOOKUP ───────────────────────────────────────────────────────────────── */
+/* ── ADD OR REUSE VARIABLE ───────────────────────────────────────────────── */
+/* Used exclusively by for-loop init. If the variable is already declared in
+ * the current scope (e.g. a second loop also uses 'int i'), silently reuse
+ * its existing offset instead of erroring. This avoids requiring block-level
+ * scoping for the common pattern of reusing a loop counter name. */
+int addOrReuseVar(char* name, char* type) {
+    for (int i = 0; i < symtab.count; i++) {
+        if (strcmp(symtab.vars[i].name,  name) == 0 &&
+            strcmp(symtab.vars[i].scope, currentScope) == 0) {
+            printf("SYMBOL TABLE: Reusing '%s' (type: %s, scope: %s, offset: %d)\n",
+                   name, type, currentScope, symtab.vars[i].offset);
+            return symtab.vars[i].offset;
+        }
+    }
+    /* Not yet declared — fall through to normal addVar */
+    return addVar(name, type);
+}
+
+/* ── ADD ARRAY ───────────────────────────────────────────────────────────── */
+/* Registers an array's base offset and reserves size*4 bytes so that
+ * subsequent variables don't overlap the array's storage. */
+int addArray(char* name, char* type, int size) {
+    /* Duplicate check */
+    for (int i = 0; i < symtab.count; i++) {
+        if (strcmp(symtab.vars[i].name,  name) == 0 &&
+            strcmp(symtab.vars[i].scope, currentScope) == 0) {
+            fprintf(stderr,
+                "SYMBOL TABLE ERROR: Array '%s' already declared in scope '%s'\n",
+                name, currentScope);
+            return -1;
+        }
+    }
+    if (symtab.count >= MAX_VARS) {
+        fprintf(stderr, "SYMBOL TABLE ERROR: Maximum variable limit reached\n");
+        return -1;
+    }
+
+    int offset;
+    int byteSize = size * 4;  /* reserve all elements at once */
+
+    if (strcmp(currentScope, "global") == 0) {
+        offset = symtab.nextGlobalOffset;
+        symtab.nextGlobalOffset += byteSize;
+    } else {
+        offset = symtab.nextLocalOffset;
+        symtab.nextLocalOffset += byteSize;
+    }
+
+    symtab.vars[symtab.count].name   = strdup(name);
+    symtab.vars[symtab.count].type   = strdup(type);
+    symtab.vars[symtab.count].scope  = strdup(currentScope);
+    symtab.vars[symtab.count].offset = offset;
+    symtab.count++;
+
+    printf("SYMBOL TABLE: Array '%s' (type: %s[%d], scope: %s, base offset: %d)\n",
+           name, type, size, currentScope, offset);
+    return offset;
+}
 /* Searches current scope first, then global. Returns offset or -1. */
 int getVarOffset(char* name) {
     /* Current scope first */
@@ -281,4 +338,125 @@ char* getFuncParamName(char* name, int idx) {
         }
     }
     return NULL;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * STRUCT TYPE TABLE
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+static StructTable structtab;
+
+void initStructTab() {
+    structtab.count = 0;
+}
+
+int addStructDef(char* name) {
+    for (int i = 0; i < structtab.count; i++) {
+        if (strcmp(structtab.defs[i].name, name) == 0) {
+            fprintf(stderr,
+                "STRUCT TABLE ERROR: Struct '%s' already defined\n", name);
+            return -1;
+        }
+    }
+    if (structtab.count >= MAX_STRUCTS) {
+        fprintf(stderr, "STRUCT TABLE ERROR: Max struct definitions reached\n");
+        return -1;
+    }
+    StructDef* d = &structtab.defs[structtab.count++];
+    d->name       = strdup(name);
+    d->fieldCount = 0;
+    return 0;
+}
+
+int addStructField(char* structName, char* fieldType, char* fieldName) {
+    for (int i = 0; i < structtab.count; i++) {
+        if (strcmp(structtab.defs[i].name, structName) == 0) {
+            StructDef* d = &structtab.defs[i];
+            if (d->fieldCount >= MAX_FIELDS) {
+                fprintf(stderr,
+                    "STRUCT TABLE ERROR: Too many fields in '%s'\n", structName);
+                return -1;
+            }
+            /* Duplicate field check */
+            for (int j = 0; j < d->fieldCount; j++) {
+                if (strcmp(d->fieldNames[j], fieldName) == 0) {
+                    fprintf(stderr,
+                        "STRUCT TABLE ERROR: Field '%s' already in '%s'\n",
+                        fieldName, structName);
+                    return -1;
+                }
+            }
+            d->fieldTypes[d->fieldCount] = strdup(fieldType);
+            d->fieldNames[d->fieldCount] = strdup(fieldName);
+            d->fieldCount++;
+            return 0;
+        }
+    }
+    fprintf(stderr,
+        "STRUCT TABLE ERROR: Struct '%s' not defined\n", structName);
+    return -1;
+}
+
+int isStructDefined(char* name) {
+    for (int i = 0; i < structtab.count; i++)
+        if (strcmp(structtab.defs[i].name, name) == 0) return 1;
+    return 0;
+}
+
+int getStructFieldCount(char* name) {
+    for (int i = 0; i < structtab.count; i++)
+        if (strcmp(structtab.defs[i].name, name) == 0)
+            return structtab.defs[i].fieldCount;
+    return 0;
+}
+
+char* getStructFieldType(char* name, int idx) {
+    for (int i = 0; i < structtab.count; i++)
+        if (strcmp(structtab.defs[i].name, name) == 0)
+            return structtab.defs[i].fieldTypes[idx];
+    return NULL;
+}
+
+char* getStructFieldName(char* name, int idx) {
+    for (int i = 0; i < structtab.count; i++)
+        if (strcmp(structtab.defs[i].name, name) == 0)
+            return structtab.defs[i].fieldNames[idx];
+    return NULL;
+}
+
+/* Returns the byte offset of fieldName within structName (field index * 4).
+ * Returns -1 if the struct or field is not found. */
+int getStructFieldOffset(char* structName, char* fieldName) {
+    for (int i = 0; i < structtab.count; i++) {
+        if (strcmp(structtab.defs[i].name, structName) == 0) {
+            StructDef* d = &structtab.defs[i];
+            for (int j = 0; j < d->fieldCount; j++) {
+                if (strcmp(d->fieldNames[j], fieldName) == 0)
+                    return j * 4;
+            }
+            return -1;
+        }
+    }
+    return -1;
+}
+
+int getStructSize(char* name) {
+    for (int i = 0; i < structtab.count; i++)
+        if (strcmp(structtab.defs[i].name, name) == 0)
+            return structtab.defs[i].fieldCount * 4;
+    return 0;
+}
+
+/* Registers a struct variable in the variable symbol table, reserving
+ * fieldCount * 4 bytes (one word per field, same layout as arrays).
+ * The type stored is the struct type name so getVarType() returns it. */
+int addStructVar(char* varName, char* structTypeName) {
+    if (!isStructDefined(structTypeName)) {
+        fprintf(stderr,
+            "SYMBOL TABLE ERROR: Struct type '%s' not defined\n", structTypeName);
+        return -1;
+    }
+    int size = getStructSize(structTypeName);
+    /* Reuse addArray logic: it reserves size bytes starting at a base offset */
+    return addArray(varName, structTypeName, size / 4);
 }

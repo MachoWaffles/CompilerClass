@@ -1,0 +1,21 @@
+// t22_arrays_and_functions.cm — array filled via function call, summed with while
+// Expected output: 0 2 4 6 8  then  20
+function double(int n) returns int {
+    return n + n;
+}
+function Master() returns nothing {
+    int vals[5];
+    for(int i = 0; i < 5; i++) {
+        vals[i] = double(i);
+    }
+    for(int i = 0; i < 5; i++) {
+        print(vals[i]);
+    }
+    int sum = 0;
+    int j = 0;
+    while(j < 5) {
+        sum = sum + vals[j];
+        j = j + 1;
+    }
+    print(sum);
+}

@@ -1,0 +1,18 @@
+// t16_arrays_loops.cm — array filled by for loop, sum with while loop
+// Expected output: 0 1 4 9 16  then  30
+function Master() returns nothing {
+    int arr[5];
+    for(int i = 0; i < 5; i++) {
+        arr[i] = i * i;
+    }
+    for(int i = 0; i < 5; i++) {
+        print(arr[i]);
+    }
+    int sum = 0;
+    int j = 0;
+    while(j < 5) {
+        sum = sum + arr[j];
+        j = j + 1;
+    }
+    print(sum);
+}
