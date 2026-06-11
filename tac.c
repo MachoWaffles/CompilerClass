@@ -105,15 +105,21 @@ char* generateTACExpr(ASTNode* node) {
             char* right = generateTACExpr(node->data.binop.right);
             char* temp  = newTemp();
 
-        if (node->data.binop.op == '+') {
-            appendTAC(createTAC(TAC_ADD, left, right, temp));
-        } else if (node->data.binop.op == '-') {
-            appendTAC(createTAC(TAC_SUB, left, right, temp));
-        } else if (node->data.binop.op == '*') {
-            appendTAC(createTAC(TAC_MUL, left, right, temp));
-        } else if (node->data.binop.op == '/') {
-            appendTAC(createTAC(TAC_DIV, left, right, temp));
-        }
+        char op = node->data.binop.op;
+        TACOp tacOp;
+        if      (op == '+') tacOp = TAC_ADD;
+        else if (op == '-') tacOp = TAC_SUB;
+        else if (op == '*') tacOp = TAC_MUL;
+        else if (op == '/') tacOp = TAC_DIV;
+        else if (op == '<') tacOp = TAC_LT;
+        else if (op == '>') tacOp = TAC_GT;
+        else if (op == 'L') tacOp = TAC_LE;  /* <= */
+        else if (op == 'G') tacOp = TAC_GE;  /* >= */
+        else if (op == 'E') tacOp = TAC_EQ;  /* == */
+        else if (op == 'N') tacOp = TAC_NE;  /* != */
+        else                tacOp = TAC_ADD;  /* fallback */
+
+        appendTAC(createTAC(tacOp, left, right, temp));
 
         if (left) free(left);
         if (right) free(right);
@@ -280,63 +286,88 @@ void generateTAC(ASTNode* node) {
             generateTAC(node->data.stmtlist.next);
             break;
 
-        default:
+        case NODE_IF: {
+            char* labelElse = newLabel();
+            char* labelEnd  = newLabel();
+
+            /* Evaluate condition into a temp */
+            char* cond = generateTACExpr(node->data.ifStmt.condition);
+
+            /* If false, jump to else-block (or end if no else) */
+            appendTAC(createTAC(TAC_IF_FALSE, cond, NULL,
+                                node->data.ifStmt.elseBody ? labelElse : labelEnd));
+            if (cond) free(cond);
+
+            /* Then-body */
+            generateTAC(node->data.ifStmt.thenBody);
+
+            if (node->data.ifStmt.elseBody) {
+                appendTAC(createTAC(TAC_GOTO,  NULL, NULL, labelEnd));
+                appendTAC(createTAC(TAC_LABEL, NULL, NULL, labelElse));
+                generateTAC(node->data.ifStmt.elseBody);
+            }
+
+            appendTAC(createTAC(TAC_LABEL, NULL, NULL, labelEnd));
+            break;
+        }
+
+        case NODE_ELSE:
+            generateTAC(node->data.elseBody);
             break;
 
-       case NODE_WHILE: {
-
+        case NODE_WHILE: {
             char* startLabel = newLabel();
             char* endLabel   = newLabel();
 
-            /* loop start */
-            appendTAC(createTAC(
-                TAC_LABEL,
-                NULL,
-                NULL,
-                startLabel
-            ));
+            /* Loop start label */
+            appendTAC(createTAC(TAC_LABEL, NULL, NULL, startLabel));
 
-            /* condition */
-            char* cond =
-                generateTACExpr(
-                    node->data.whileStmt.condition
-                );
+            /* Condition — exit loop if false */
+            char* cond = generateTACExpr(node->data.whileStmt.condition);
+            appendTAC(createTAC(TAC_IF_FALSE, cond, NULL, endLabel));
+            if (cond) free(cond);
 
-            appendTAC(createTAC(
-                TAC_IF_FALSE,
-                cond,
-                NULL,
-                endLabel
-            ));
+            /* Body */
+            generateTAC(node->data.whileStmt.body);
 
-            /* body */
-            generateTAC(
-                node->data.whileStmt.body
-            );
+            /* Jump back to condition check */
+            appendTAC(createTAC(TAC_GOTO,  NULL, NULL, startLabel));
 
-            /* jump back */
-            appendTAC(createTAC(
-                TAC_GOTO,
-                NULL,
-                NULL,
-                startLabel
-            ));
-
-            /* loop exit */
-            appendTAC(createTAC(
-                TAC_LABEL,
-                NULL,
-                NULL,
-                endLabel
-            ));
-
-            if (cond)
-                free(cond);
-
+            /* Loop exit label */
+            appendTAC(createTAC(TAC_LABEL, NULL, NULL, endLabel));
             break;
         }
-            }
+
+        case NODE_FOR: {
+            char* startLabel = newLabel();
+            char* endLabel   = newLabel();
+
+            /* Init (e.g. int i = 0 or i = 0) */
+            generateTAC(node->data.forStmt.init);
+
+            /* Loop start label */
+            appendTAC(createTAC(TAC_LABEL, NULL, NULL, startLabel));
+
+            /* Condition — exit if false */
+            char* cond = generateTACExpr(node->data.forStmt.condition);
+            appendTAC(createTAC(TAC_IF_FALSE, cond, NULL, endLabel));
+            if (cond) free(cond);
+
+            /* Body */
+            generateTAC(node->data.forStmt.body);
+
+            /* Update (e.g. i = i + 1) */
+            generateTAC(node->data.forStmt.update);
+
+            appendTAC(createTAC(TAC_GOTO,  NULL, NULL, startLabel));
+            appendTAC(createTAC(TAC_LABEL, NULL, NULL, endLabel));
+            break;
         }
+
+        default:
+            break;
+    }
+}
 
 /* ── PRINT TAC ────────────────────────────────────────────────────────────── */
 static void printTACInstr(TACInstr* curr, int lineNum, int optimized) {
@@ -404,6 +435,30 @@ static void printTACInstr(TACInstr* curr, int lineNum, int optimized) {
         case TAC_IF_FALSE:
             printf("IF_FALSE %s GOTO %s\n", curr->arg1, curr->result);
             break;
+        case TAC_LT:
+            printf("%s = %s < %s", curr->result, curr->arg1, curr->arg2);
+            printf("     // Less-than\n");
+            break;
+        case TAC_GT:
+            printf("%s = %s > %s", curr->result, curr->arg1, curr->arg2);
+            printf("     // Greater-than\n");
+            break;
+        case TAC_LE:
+            printf("%s = %s <= %s", curr->result, curr->arg1, curr->arg2);
+            printf("    // Less-or-equal\n");
+            break;
+        case TAC_GE:
+            printf("%s = %s >= %s", curr->result, curr->arg1, curr->arg2);
+            printf("    // Greater-or-equal\n");
+            break;
+        case TAC_EQ:
+            printf("%s = %s == %s", curr->result, curr->arg1, curr->arg2);
+            printf("    // Equal\n");
+            break;
+        case TAC_NE:
+            printf("%s = %s != %s", curr->result, curr->arg1, curr->arg2);
+            printf("    // Not-equal\n");
+            break;
         default:
             printf("(unknown op)\n");
             break;
@@ -426,12 +481,16 @@ void printTAC() {
 void optimizeTAC() {
     TACInstr* curr = tacList.head;
 
-    optimizedList.head       = NULL;
-    optimizedList.tail       = NULL;
+    optimizedList.head = NULL;
+    optimizedList.tail = NULL;
 
-    typedef struct { char* var; char* value; } VarValue;
+    typedef struct { char* var; char* val; } VarValue;
     VarValue values[200];
-    int      valueCount = 0;
+    int valueCount = 0;
+
+    /* Only temporaries (t0, t1, ...) are safe to cache — they are written
+     * exactly once and never reassigned.  User variables can change on any
+     * loop iteration, so we never put them in the table. */
 
     while (curr) {
         TACInstr* newInstr = NULL;
@@ -445,86 +504,54 @@ void optimizeTAC() {
             case TAC_SUB:
             case TAC_MUL:
             case TAC_DIV: {
+                /* Copy-propagate: substitute any cached temp value */
                 char* left = curr->arg1;
                 char* right = curr->arg2;
+                for (int i = valueCount-1; i >= 0; i--)
+                    if (left && values[i].var && strcmp(values[i].var, left)==0)
+                        { left = values[i].val; break; }
+                for (int i = valueCount-1; i >= 0; i--)
+                    if (right && values[i].var && strcmp(values[i].var, right)==0)
+                        { right = values[i].val; break; }
 
-                for (int i = valueCount - 1; i >= 0; i--) {
-                    if (left && values[i].var &&
-                        strcmp(values[i].var, left) == 0) {
-                        left = values[i].value;
-                        break;
+                int lc = left  && (isdigit((unsigned char)left[0])  || (left[0]=='-'  && isdigit((unsigned char)left[1])));
+                int rc = right && (isdigit((unsigned char)right[0]) || (right[0]=='-' && isdigit((unsigned char)right[1])));
+
+                if (lc && rc) {
+                    /* Constant folding */
+                    int a = atoi(left), b = atoi(right), res = 0;
+                    if      (curr->op == TAC_ADD) res = a + b;
+                    else if (curr->op == TAC_SUB) res = a - b;
+                    else if (curr->op == TAC_MUL) res = a * b;
+                    else {
+                        if (b == 0) { newInstr = createTAC(curr->op, left, right, curr->result); break; }
+                        res = a / b;
                     }
-                }
-
-                for (int i = valueCount - 1; i >= 0; i--) {
-                    if (right && values[i].var &&
-                        strcmp(values[i].var, right) == 0) {
-                        right = values[i].value;
-                        break;
-                    }
-                }
-
-                int leftConst =
-                    left &&
-                    (isdigit(left[0]) ||
-                    (left[0] == '-' && isdigit(left[1])));
-
-                int rightConst =
-                    right &&
-                    (isdigit(right[0]) ||
-                    (right[0] == '-' && isdigit(right[1])));
-
-                if (leftConst && rightConst) {
-                    int a = atoi(left);
-                    int b = atoi(right);
-                    int result = 0;
-
-                    if (curr->op == TAC_ADD) {
-                        result = a + b;
-                    } else if (curr->op == TAC_SUB) {
-                        result = a - b;
-                    } else if (curr->op == TAC_MUL) {
-                        result = a * b;
-                    } else if (curr->op == TAC_DIV) {
-                        if (b == 0) {
-                            newInstr = createTAC(curr->op, left, right, curr->result);
-                            break;
-                        }
-                        result = a / b;
-                    }
-
-                    char buffer[32];
-                    sprintf(buffer, "%d", result);
-
-                    if (curr->result) {
+                    char folded[32];
+                    sprintf(folded, "%d", res);
+                    /* Cache result if it's a temporary */
+                    if (curr->result && curr->result[0]=='t' && isdigit((unsigned char)curr->result[1])) {
                         values[valueCount].var = strdup(curr->result);
-                        values[valueCount].value = strdup(buffer);
+                        values[valueCount].val = strdup(folded);
                         valueCount++;
                     }
-
-                    newInstr = createTAC(TAC_ASSIGN, buffer, NULL, curr->result);
-
+                    newInstr = createTAC(TAC_ASSIGN, folded, NULL, curr->result);
                 } else {
                     newInstr = createTAC(curr->op, left, right, curr->result);
                 }
-
                 break;
             }
 
             case TAC_ASSIGN: {
                 char* value = curr->arg1;
-                if (value) {
-                    for (int i = valueCount - 1; i >= 0; i--) {
-                        if (values[i].var && strcmp(values[i].var, value) == 0) {
-                            value = values[i].value;
-                            break;
-                        }
-                    }
-                }
-
-                if (curr->result && value) {
-                    values[valueCount].var   = strdup(curr->result);
-                    values[valueCount].value = strdup(value);
+                /* Substitute cached temp value on RHS */
+                for (int i = valueCount-1; i >= 0; i--)
+                    if (value && values[i].var && strcmp(values[i].var, value)==0)
+                        { value = values[i].val; break; }
+                /* Cache result only if it is a temporary */
+                if (curr->result && curr->result[0]=='t' && isdigit((unsigned char)curr->result[1])) {
+                    values[valueCount].var = strdup(curr->result);
+                    values[valueCount].val = strdup(value ? value : "");
                     valueCount++;
                 }
                 newInstr = createTAC(TAC_ASSIGN, value, NULL, curr->result);
@@ -533,15 +560,23 @@ void optimizeTAC() {
 
             case TAC_PRINT: {
                 char* value = curr->arg1;
-                if (value) {
-                    for (int i = valueCount - 1; i >= 0; i--)
-                        if (strcmp(values[i].var, value) == 0) { value = values[i].value; break; }
-                }
+                for (int i = valueCount-1; i >= 0; i--)
+                    if (value && values[i].var && strcmp(values[i].var, value)==0)
+                        { value = values[i].val; break; }
                 newInstr = createTAC(TAC_PRINT, value, NULL, NULL);
                 break;
             }
 
-            /* Function instructions pass through unmodified */
+            /* Everything else passes through unchanged */
+            case TAC_LABEL:
+            case TAC_GOTO:
+            case TAC_IF_FALSE:
+            case TAC_LT:
+            case TAC_GT:
+            case TAC_LE:
+            case TAC_GE:
+            case TAC_EQ:
+            case TAC_NE:
             case TAC_FUNC_BEGIN:
             case TAC_FUNC_END:
             case TAC_PARAM:
@@ -609,9 +644,6 @@ static void writeTACInstr(FILE* f, TACInstr* curr, int n) {
             if (curr->arg1) fprintf(f, "RETURN %s\n", curr->arg1);
             else            fprintf(f, "RETURN\n");
             break;
-        default:
-            fprintf(f, "(unknown)\n");
-            break;
         case TAC_LABEL:
             fprintf(f, "LABEL %s\n", curr->result);
             break;
@@ -620,6 +652,24 @@ static void writeTACInstr(FILE* f, TACInstr* curr, int n) {
             break;
         case TAC_IF_FALSE:
             fprintf(f, "IF_FALSE %s GOTO %s\n", curr->arg1, curr->result);
+            break;
+        case TAC_LT:
+            fprintf(f, "%s = %s < %s\n",  curr->result, curr->arg1, curr->arg2);
+            break;
+        case TAC_GT:
+            fprintf(f, "%s = %s > %s\n",  curr->result, curr->arg1, curr->arg2);
+            break;
+        case TAC_LE:
+            fprintf(f, "%s = %s <= %s\n", curr->result, curr->arg1, curr->arg2);
+            break;
+        case TAC_GE:
+            fprintf(f, "%s = %s >= %s\n", curr->result, curr->arg1, curr->arg2);
+            break;
+        case TAC_EQ:
+            fprintf(f, "%s = %s == %s\n", curr->result, curr->arg1, curr->arg2);
+            break;
+        case TAC_NE:
+            fprintf(f, "%s = %s != %s\n", curr->result, curr->arg1, curr->arg2);
             break;
     }
 }

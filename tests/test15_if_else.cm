@@ -1,0 +1,17 @@
+function Master() returns nothing {
+    int x = 10;
+    int y = 4;
+
+    if (x > 0) then {
+        if (x < 20) then {
+            if (y > 5) then {
+                if (y < 7) then {
+                     print (4);
+                }
+            }
+            alternatively {
+                print (2);
+            }
+        }
+    }
+}

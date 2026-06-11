@@ -19,7 +19,7 @@ typedef enum {
     TAC_ADD,
     TAC_SUB,
     TAC_MUL,
-    TAC_DIV,      /* result = arg1 + arg2 */
+    TAC_DIV,      /* result = arg1 op arg2 */
     TAC_ASSIGN,   /* result = arg1 */
     TAC_PRINT,    /* print(arg1) */
     TAC_DECL,     /* declare variable 'result' of type arg1 */
@@ -27,6 +27,14 @@ typedef enum {
     TAC_LABEL,
     TAC_GOTO,
     TAC_IF_FALSE,
+
+    /* Comparison operators — result is 1 (true) or 0 (false) */
+    TAC_LT,       /* result = arg1 <  arg2  (parser op '<') */
+    TAC_GT,       /* result = arg1 >  arg2  (parser op '>') */
+    TAC_LE,       /* result = arg1 <= arg2  (parser op 'L') */
+    TAC_GE,       /* result = arg1 >= arg2  (parser op 'G') */
+    TAC_EQ,       /* result = arg1 == arg2  (parser op 'E') */
+    TAC_NE,       /* result = arg1 != arg2  (parser op 'N') */
 
     /* Function-related operations */
     TAC_FUNC_BEGIN, /* Marks the start of a function: result = function name label */

@@ -37,6 +37,8 @@ typedef enum {
 
     NODE_WHILE,
     NODE_FOR,         /* for (init; condition; update) { body } */
+    NODE_IF,
+    NODE_ELSE,
 
     /* Struct support */
     NODE_STRUCT_DECL,   /* struct Point { int x; int y; }  — type definition */
@@ -174,7 +176,15 @@ typedef struct ASTNode {
             char* fieldName;  /* the field being written */
             struct ASTNode* value;
         } fieldAssign;
+        /* NODE_IF */
+        struct {
+            struct ASTNode* condition;
+            struct ASTNode* thenBody;
+            struct ASTNode* elseBody;
+        } ifStmt;
 
+        struct ASTNode* elseBody; /* for NODE_ELSE, holds the else body */
+        
     } data;
 } ASTNode;
 
@@ -207,7 +217,12 @@ ASTNode* createStructVar(char* structType, char* varName);
 ASTNode* createFieldAccess(char* varName, char* fieldName);
 ASTNode* createFieldAssign(char* varName, char* fieldName, ASTNode* value);
 
+/* If-Else constructors */
+ASTNode* createElse(ASTNode* elseBody);
+ASTNode* createIf(ASTNode* condition, ASTNode* thenBody, ASTNode* elseBody);
+
 /* ── DISPLAY ─────────────────────────────────────────────────────────────── */
 void printAST(ASTNode* node, int level);
+
 
 #endif

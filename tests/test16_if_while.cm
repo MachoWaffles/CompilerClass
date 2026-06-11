@@ -1,0 +1,14 @@
+function Master() returns nothing {
+    float x = 10.0;
+    if (x > 0.0) then {
+        while (x > 2.0){
+            x = x - 1;
+            if (x / 2.0 == 0.0) then {
+                print(1);
+            }
+            alternatively {
+                print(2);
+            }
+        }
+    }
+}

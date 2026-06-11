@@ -1,0 +1,14 @@
+function Master() returns nothing {
+    int x = 1;
+
+    while (x < 6) {
+        if (x == 3) then {
+            print(99);
+        }
+        alternatively {
+            print(x);
+        }
+
+        x = x + 1;
+    }
+}

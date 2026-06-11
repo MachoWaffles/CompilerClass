@@ -630,7 +630,19 @@ void analyzeStmt(ASTNode* node) {
             analyzeExpr(node->data.fieldAssign.value);
             break;
         }
-
+        case NODE_IF: {
+            analyzeExpr(node->data.ifStmt.condition);
+            analyzeStmt(node->data.ifStmt.thenBody);
+            if (node->data.ifStmt.elseBody) {
+                analyzeStmt(node->data.ifStmt.elseBody);
+            }
+            break;
+        }
+        case NODE_ELSE: {
+            analyzeStmt(node->data.elseBody);
+            break;
+        }
+        
         default:
             break;
     }

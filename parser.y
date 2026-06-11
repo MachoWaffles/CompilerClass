@@ -58,6 +58,11 @@ ASTNode* root = NULL;
 /* Struct keyword */
 %token STRUCT
 
+/* If/Else keywords */
+%token IF
+%token THEN
+%token ALTERNATIVELY
+
 /* ── NON-TERMINAL TYPES ─────────────────────────────────────────────────── */
 %type <node> program top_level_list top_level_item
 %type <node> stmt_list stmt decl assign expr print_stmt decAssign
@@ -66,6 +71,7 @@ ASTNode* root = NULL;
 %type <str>  type
 %type <node> while_stmt for_stmt for_init for_update
 %type <node> struct_decl struct_var field_assign field_decl_list
+%type <node> if_stmt else_part
 
 /* ── OPERATOR PRECEDENCE ────────────────────────────────────────────────── */
 %left EQ NE
@@ -110,6 +116,7 @@ stmt:
     | array_assign
     | while_stmt
     | for_stmt
+    | if_stmt
     | struct_var
     | field_assign
     ;
@@ -371,6 +378,27 @@ for_stmt:
     }
     ;
 
+/* ── IF-ELSE STATEMENT ─────────────────────────────────────────────────────── */
+if_stmt:
+    IF '(' expr ')' THEN '{' stmt_list '}' else_part {
+        $$ = createIf($3, $7, $9);
+    }
+    | IF '(' expr ')' THEN '{' '}' else_part {
+        $$ = createIf($3, NULL, $8);
+    }
+    ;
+
+else_part:
+    ALTERNATIVELY '{' stmt_list '}' {
+        $$ = createElse($3);
+    }
+    | ALTERNATIVELY '{' '}' {
+        $$ = createElse(NULL);
+    }
+    | /* empty */ {
+        $$ = NULL;
+    }
+    ;
 /* ── EXPRESSIONS ─────────────────────────────────────────────────────────── */
 expr:
     NUM                     { $$ = createNum($1); }

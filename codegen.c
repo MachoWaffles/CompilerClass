@@ -175,25 +175,74 @@ static int genExpr(ASTNode* node) {
                 switch (node->data.binop.op) {
                     case '+':
                         fprintf(output, "    add.s $f0, $f0, $f2\n");
+                        fprintf(output, "    mfc1 $t%d, $f0\n", lR);
                         break;
                     case '-':
                         fprintf(output, "    sub.s $f0, $f0, $f2\n");
+                        fprintf(output, "    mfc1 $t%d, $f0\n", lR);
                         break;
                     case '*':
                         fprintf(output, "    mul.s $f0, $f0, $f2\n");
+                        fprintf(output, "    mfc1 $t%d, $f0\n", lR);
                         break;
                     case '/':
                         fprintf(output, "    div.s $f0, $f0, $f2\n");
+                        fprintf(output, "    mfc1 $t%d, $f0\n", lR);
                         break;
+
+                    /* ── Float comparison operators ──
+                     * MIPS FPU sets the condition flag with c.xx.s,
+                     * then we materialise 0/1 in an integer register.
+                     * NO mfc1 here — $tN already holds the 0/1 result. */
+                    case '<':
+                        fprintf(output, "    c.lt.s $f0, $f2\n");
+                        fprintf(output, "    li $t%d, 0\n",  lR);
+                        fprintf(output, "    bc1f _fcmp_end_%d\n", printLabelCount);
+                        fprintf(output, "    li $t%d, 1\n",  lR);
+                        fprintf(output, "_fcmp_end_%d:\n",   printLabelCount++);
+                        break;
+                    case '>':
+                        fprintf(output, "    c.lt.s $f2, $f0\n");
+                        fprintf(output, "    li $t%d, 0\n",  lR);
+                        fprintf(output, "    bc1f _fcmp_end_%d\n", printLabelCount);
+                        fprintf(output, "    li $t%d, 1\n",  lR);
+                        fprintf(output, "_fcmp_end_%d:\n",   printLabelCount++);
+                        break;
+                    case 'L': /* <= */
+                        fprintf(output, "    c.le.s $f0, $f2\n");
+                        fprintf(output, "    li $t%d, 0\n",  lR);
+                        fprintf(output, "    bc1f _fcmp_end_%d\n", printLabelCount);
+                        fprintf(output, "    li $t%d, 1\n",  lR);
+                        fprintf(output, "_fcmp_end_%d:\n",   printLabelCount++);
+                        break;
+                    case 'G': /* >= */
+                        fprintf(output, "    c.le.s $f2, $f0\n");
+                        fprintf(output, "    li $t%d, 0\n",  lR);
+                        fprintf(output, "    bc1f _fcmp_end_%d\n", printLabelCount);
+                        fprintf(output, "    li $t%d, 1\n",  lR);
+                        fprintf(output, "_fcmp_end_%d:\n",   printLabelCount++);
+                        break;
+                    case 'E': /* == */
+                        fprintf(output, "    c.eq.s $f0, $f2\n");
+                        fprintf(output, "    li $t%d, 0\n",  lR);
+                        fprintf(output, "    bc1f _fcmp_end_%d\n", printLabelCount);
+                        fprintf(output, "    li $t%d, 1\n",  lR);
+                        fprintf(output, "_fcmp_end_%d:\n",   printLabelCount++);
+                        break;
+                    case 'N': /* != */
+                        fprintf(output, "    c.eq.s $f0, $f2\n");
+                        fprintf(output, "    li $t%d, 1\n",  lR);
+                        fprintf(output, "    bc1f _fcmp_end_%d\n", printLabelCount);
+                        fprintf(output, "    li $t%d, 0\n",  lR);
+                        fprintf(output, "_fcmp_end_%d:\n",   printLabelCount++);
+                        break;
+
                     default:
                         fprintf(stderr,
                                 "\n❌ Unsupported binary operator '%c'\n",
                                 node->data.binop.op);
                         exit(1);
                 }
-
-                /* Move result bits back to integer register */
-                fprintf(output, "    mfc1 $t%d, $f0\n", lR);
             }
             else {
                 switch (node->data.binop.op) {
@@ -812,6 +861,34 @@ static void genStmt(ASTNode* node) {
             fprintf(output, "    j _for_start_%d\n", lbl);
             fprintf(output, "_for_end_%d:\n\n", lbl);
 
+            break;
+        }
+
+        case NODE_IF: {
+            int lbl = loopLabelCount++;
+
+            /* Evaluate condition; branch past then body if false (== 0) */
+            int condR = genExpr(node->data.ifStmt.condition);
+            fprintf(output, "    beq $t%d, $zero, _if_end_%d\n", condR, lbl);
+            free_temp(condR);
+            resetTemps();
+
+            genStmt(node->data.ifStmt.thenBody);
+
+            if (node->data.ifStmt.elseBody) {
+                fprintf(output, "    j _if_else_%d\n", lbl);
+                fprintf(output, "_if_end_%d:\n\n", lbl);
+                genStmt(node->data.ifStmt.elseBody);
+                fprintf(output, "_if_else_%d:\n\n", lbl);
+            } else {
+                fprintf(output, "_if_end_%d:\n\n", lbl);
+            }
+
+            break;
+        }
+
+        case NODE_ELSE: {
+            genStmt(node->data.elseBody);
             break;
         }
 

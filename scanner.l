@@ -45,6 +45,10 @@ int yycolno = 1;
 "for"           { if (displayTokens) printf("  TOKEN: FOR keyword\n");   return FOR; }
 "struct"        { if (displayTokens) printf("  TOKEN: STRUCT keyword\n"); return STRUCT; }
 
+"if"            { if (displayTokens) printf("  TOKEN: IF keyword\n");    return IF; }
+"alternatively"          { if (displayTokens) printf("  TOKEN: ELSE keyword\n");  return ALTERNATIVELY; }
+"then"          { if (displayTokens) printf("  TOKEN: THEN keyword\n");  return THEN; }
+
 [a-zA-Z_][a-zA-Z0-9_]* {
     if (displayTokens) printf("  TOKEN: ID '%s'\n", yytext);
     yylval.str = strdup(yytext);

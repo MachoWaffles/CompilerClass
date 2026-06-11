@@ -355,8 +355,30 @@ void printAST(ASTNode* node, int level) {
                 node->data.fieldAssign.fieldName);
             printAST(node->data.fieldAssign.value, level + 1);
             break;
-    }
-}
+        case NODE_IF:
+            printf("IF\n");
+
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("CONDITION:\n");
+            printAST(node->data.ifStmt.condition, level + 2);
+
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("THEN:\n");
+            printAST(node->data.ifStmt.thenBody, level + 2);
+
+            if (node->data.ifStmt.elseBody) {
+                for (int i = 0; i < level + 1; i++) printf("  ");
+                printf("ELSE:\n");
+                printAST(node->data.ifStmt.elseBody, level + 2);
+            }
+            break;
+
+        case NODE_ELSE:
+            printf("ELSE\n");
+            printAST(node->data.elseBody, level + 1);
+            break;
+            }
+        }
 
 /* ── STRUCT CONSTRUCTORS ─────────────────────────────────────────────────── */
 
@@ -390,5 +412,21 @@ ASTNode* createFieldAssign(char* varName, char* fieldName, ASTNode* value) {
     node->data.fieldAssign.varName   = strdup(varName);
     node->data.fieldAssign.fieldName = strdup(fieldName);
     node->data.fieldAssign.value     = value;
+    return node;
+}
+
+ASTNode* createElse(ASTNode* elseBody) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_ELSE;
+    node->data.elseBody = elseBody;
+    return node;
+}
+
+ASTNode* createIf(ASTNode* condition, ASTNode* thenBody, ASTNode* elseBody) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_IF;
+    node->data.ifStmt.condition = condition;
+    node->data.ifStmt.thenBody  = thenBody;
+    node->data.ifStmt.elseBody  = elseBody;
     return node;
 }
