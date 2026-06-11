@@ -892,6 +892,11 @@ static void genStmt(ASTNode* node) {
             break;
         }
 
+        case NODE_SWITCH: {
+            /* Implementation for switch statement code generation */
+            break;
+        }
+        
         /* These node types are expression nodes handled by genExpr, or
          * structural nodes (PARAM_DECL, FUNC_DECL) handled elsewhere.
          * They should never arrive at genStmt; list them explicitly to

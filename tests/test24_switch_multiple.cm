@@ -1,0 +1,20 @@
+function Master() returns nothing {
+    int x = 3;
+
+    switch (x) {
+        case 1:
+            print(10);
+            break;
+
+        case 2:
+            print(20);
+            break;
+
+        case 3:
+            print(30);
+            break;
+
+        default:
+            print(0);
+    }
+}

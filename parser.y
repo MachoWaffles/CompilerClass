@@ -63,6 +63,11 @@ ASTNode* root = NULL;
 %token THEN
 %token ALTERNATIVELY
 
+%token SWITCH
+%token CASE
+%token DEFAULT
+%token BREAK
+
 /* ── NON-TERMINAL TYPES ─────────────────────────────────────────────────── */
 %type <node> program top_level_list top_level_item
 %type <node> stmt_list stmt decl assign expr print_stmt decAssign
@@ -72,6 +77,7 @@ ASTNode* root = NULL;
 %type <node> while_stmt for_stmt for_init for_update
 %type <node> struct_decl struct_var field_assign field_decl_list
 %type <node> if_stmt else_part
+%type <node> switch_stmt case_list case_stmt break_stmt
 
 /* ── OPERATOR PRECEDENCE ────────────────────────────────────────────────── */
 %left EQ NE
@@ -119,6 +125,8 @@ stmt:
     | if_stmt
     | struct_var
     | field_assign
+    | switch_stmt
+    | break_stmt
     ;
 
 /* ── TYPE NON-TERMINAL ───────────────────────────────────────────────────── */
@@ -500,6 +508,36 @@ struct_var:
 field_assign:
     ID '.' ID '=' expr ';' {
         $$ = createFieldAssign($1, $3, $5);
+    }
+    ;
+
+/* ── SWITCH STATEMENT ─────────────────────────────────────────────────────── */
+switch_stmt:
+    SWITCH '(' expr ')' '{' case_list '}' {
+        $$ = createSwitch($3, $6);
+    }
+    ;
+
+case_list:
+    case_stmt {
+        $$ = $1;
+    }
+    | case_list case_stmt {
+        $$ = createStmtList($1, $2);
+    }
+    ;
+
+case_stmt:
+    CASE expr ':' stmt_list {
+        $$ = createCase($2, $4);
+    }
+    | DEFAULT ':' stmt_list {
+        $$ = createDefault($3);
+    }
+    ;
+break_stmt:
+    BREAK ';' {
+        $$ = NULL;
     }
     ;
 

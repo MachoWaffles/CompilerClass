@@ -1,0 +1,26 @@
+function Master() returns nothing {
+
+    int x = 1;
+    int y = 2;
+
+    switch (x) {
+
+        case 1:
+
+            switch (y) {
+
+                case 1:
+                    print(111);
+                    break;
+
+                case 2:
+                    print(222);
+                    break;
+            }
+
+            break;
+
+        default:
+            print(0);
+    }
+}

@@ -40,6 +40,10 @@ typedef enum {
     NODE_IF,
     NODE_ELSE,
 
+    NODE_SWITCH,
+    NODE_CASE,
+    NODE_DEFAULT,
+
     /* Struct support */
     NODE_STRUCT_DECL,   /* struct Point { int x; int y; }  — type definition */
     NODE_STRUCT_VAR,    /* Point p;  — variable of a struct type */
@@ -184,7 +188,19 @@ typedef struct ASTNode {
         } ifStmt;
 
         struct ASTNode* elseBody; /* for NODE_ELSE, holds the else body */
-        
+
+        struct {
+            struct ASTNode* expr;
+            struct ASTNode* cases;
+        } switchStmt;
+
+        struct {
+            struct ASTNode* value;
+            struct ASTNode* body;
+        } caseStmt;
+
+        struct ASTNode* defaultBody;
+
     } data;
 } ASTNode;
 
@@ -220,6 +236,11 @@ ASTNode* createFieldAssign(char* varName, char* fieldName, ASTNode* value);
 /* If-Else constructors */
 ASTNode* createElse(ASTNode* elseBody);
 ASTNode* createIf(ASTNode* condition, ASTNode* thenBody, ASTNode* elseBody);
+
+/* Switch constructors */
+ASTNode* createSwitch(ASTNode* expr, ASTNode* cases);
+ASTNode* createCase(ASTNode* value, ASTNode* body);
+ASTNode* createDefault(ASTNode* body);
 
 /* ── DISPLAY ─────────────────────────────────────────────────────────────── */
 void printAST(ASTNode* node, int level);

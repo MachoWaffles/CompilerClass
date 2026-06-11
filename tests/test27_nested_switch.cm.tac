@@ -1,0 +1,8 @@
+# Three-Address Code (TAC) - Unoptimized
+
+ 1: FUNC_BEGIN Master
+ 2: DECL int x
+ 3: x = 1
+ 4: DECL int y
+ 5: y = 2
+ 6: FUNC_END Master

@@ -1,0 +1,878 @@
+// =============================================================================
+// test_mega.cm — COMPREHENSIVE FEATURE & EDGE-CASE TEST
+//
+// Covers every valid language construct in the minicompiler.
+// Known bugs documented below are tested in the KNOWN_BUGS section
+// with "EXPECTED FAIL" labels — they should NOT be added to the
+// valid suite until the bugs are fixed.
+//
+// ── KNOWN BUGS (as of final submission build) ──────────────────────────────
+//   BUG-1: Functions with 3+ parameters fail semantic analysis.
+//          The first-pass parameter-registration loop only walks the
+//          NODE_STMT_LIST chain for the first two params, so param 3+
+//          are never registered, and the call-site arg-count check
+//          then also fires (because it thinks the function has 1 param).
+//          Workaround: keep all functions to ≤2 params.
+//
+//   BUG-2: Structs with 3+ fields fail semantic analysis.
+//          Same root cause: the field-registration loop in semantic.c
+//          only traverses NODE_STMT_LIST for the first 2 NODE_DECL nodes.
+//          Workaround: keep all structs to ≤2 fields.
+//
+// ── FEATURES TESTED ────────────────────────────────────────────────────────
+//   • types: int, float, char, bool, nothing
+//   • literals: NUM, FLOAT_LIT, CHAR_LIT, TRUE_LIT, FALSE_LIT
+//   • global var declarations and global dec-assign
+//   • global var mutation and re-read inside Master
+//   • local declaration (no init)
+//   • local declaration-with-assignment
+//   • assignment to existing variable
+//   • arithmetic: +  -  *  /  (int and float)
+//   • operator precedence (* before +) and parenthesised override
+//   • comparison operators: < > <= >= == !=  (produce bool)
+//   • print: int, float, char, bool
+//   • functions: nothing-, int-, float-, char-, bool-returning
+//   • 1-param and 2-param functions
+//   • forward reference (function defined after Master)
+//   • recursive function (factorial)
+//   • empty-body function
+//   • void return (return;)
+//   • arrays: int, float, bool, char — declare, assign, access
+//   • array fill with for loop, sum with while loop
+//   • array element in expressions
+//   • struct (2-field int) — declare, field-assign, field-access
+//   • struct field in arithmetic expression
+//   • struct field as function argument
+//   • struct field in loop condition
+//   • two separate struct types in the same program
+//   • while: basic, accumulate, ==, !=, >=, <= conditions
+//   • nested while loops
+//   • while with if inside, if with while inside
+//   • for: i++ shorthand, explicit update, nested, reused loop var
+//   • empty-body while and for (legal grammar)
+//   • if / then  (no else)
+//   • if / then / alternatively  (with else)
+//   • nested if-else chain
+//   • empty then-body, empty else-body
+//   • if inside for loop
+//   • switch / case / default / break
+//   • switch: exact match, default hit, expression as subject
+//   • bool in switch (true==1, false==0)
+//   • multiple statements in one case body
+//   • switch inside while loop
+//   • switch inside if
+//   • nested switch
+//   • char escape literals: '\n'  '\t'  '\\'
+//   • bool literals true/false used in conditions and assignments
+//   • widening: int assigned to float variable
+//   • int-float mixed arithmetic (result is float)
+//   • comments: single-line (//) and multi-line (/* */)
+//   • addOrReuseVar path: same loop-var name in two consecutive fors
+//   • boundary integer literal (2147483647)
+//   • "negative" via subtraction (0 - n) since no unary minus
+//   • integer division truncation
+//   • bool variable controlling while loop
+//   • nested function calls as arguments
+//   • field assigned from expression using another field
+// =============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION 1 — GLOBAL VARIABLES
+// All of these are accessible inside Master and helper functions.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/* Multi-line block comment over a global declaration */
+int gIntA = 100;
+int gIntB = 200;
+
+// Globals with simple literal values
+int gSeed = 7;
+int gStep = 3;
+
+float gPi = 3.14;
+
+// Global char and both bool values
+char gLetter = 'A';   // ASCII 65
+bool gTrue  = true;
+bool gFalse = false;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION 2 — STRUCT DEFINITIONS  (≤2 fields each — see BUG-2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+struct Point {
+    int x;
+    int y;
+}
+
+struct Rect {
+    int width;
+    int height;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION 3 — HELPER FUNCTIONS  (≤2 params each — see BUG-1)
+//   Some are placed before Master, some after (forward-ref test).
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Two-parameter int function
+function addTwo(int a, int b) returns int {
+    return a + b;
+}
+
+// Multiply two ints
+function mul(int a, int b) returns int {
+    return a * b;
+}
+
+// Return the larger of two ints — exercises if/alternatively with return
+function maxOf(int a, int b) returns int {
+    if (a > b) then {
+        return a;
+    } alternatively {
+        return b;
+    }
+}
+
+// Recursive factorial — tests recursion and return from within if
+function fact(int n) returns int {
+    if (n <= 1) then {
+        return 1;
+    }
+    return n * fact(n - 1);
+}
+
+// Float-returning function — widening path: int param → float division
+function halfOf(int n) returns float {
+    float f = n;      // int-to-float widening
+    return f / 2;     // int literal 2 is widened
+}
+
+// Char-returning function
+function getZ() returns char {
+    return 'Z';
+}
+
+// Bool-returning function — exercises both return paths
+function isPos(int n) returns bool {
+    if (n > 0) then {
+        return true;
+    } alternatively {
+        return false;
+    }
+}
+
+// Nothing-returning helper with explicit void return
+function printVal(int v) returns nothing {
+    print(v);
+    return;
+}
+
+// Empty-body function — legal grammar, no output
+function doNothing() returns nothing {
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION 4 — MASTER (entry point)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function Master() returns nothing {
+
+    // ── 4.1  Print globals ───────────────────────────────────────────────────
+    print(gIntA);       // 100
+    print(gIntB);       // 200
+    print(gSeed);       // 7
+    print(gStep);       // 3
+    print(gPi);         // 3.140000
+    print(gLetter);     // 65
+    print(gTrue);       // 1
+    print(gFalse);      // 0
+
+    // ── 4.2  Integer arithmetic & precedence ─────────────────────────────────
+    int a = 10;
+    int b = 5;
+
+    int r_add = a + b;        // 15
+    print(r_add);
+    int r_sub = a - b;        // 5
+    print(r_sub);
+    int r_mul = a * b;        // 50
+    print(r_mul);
+    int r_div = a / b;        // 2
+    print(r_div);
+
+    // Precedence: 2 + 2*2 = 6, not 8
+    int r_prec = 2 + 2 * 2;
+    print(r_prec);            // 6
+
+    // Parenthesised override: (2+2)*2 = 8
+    int r_paren = (2 + 2) * 2;
+    print(r_paren);           // 8
+
+    // Left-to-right: 20 - 3 - 2 = 15
+    int r_ltr = 20 - 3 - 2;
+    print(r_ltr);             // 15
+
+    // Integer division truncates: 7/2 = 3
+    int r_idiv = 7 / 2;
+    print(r_idiv);            // 3
+
+    // "Negative" via subtraction — no unary minus in this language
+    int negOne = 0 - 1;
+    print(negOne);            // -1
+
+    // ── 4.3  Float arithmetic ─────────────────────────────────────────────────
+    float f1 = 5.0;
+    float f2 = 2.0;
+
+    float f_div = f1 / f2;    // 2.5
+    print(f_div);
+
+    float f_add = f1 + f2;    // 7.0
+    print(f_add);
+
+    float f_mul = f1 * f2;    // 10.0
+    print(f_mul);
+
+    float f_sub = f1 - f2;    // 3.0
+    print(f_sub);
+
+    // Widening: int literal assigned to float var
+    float f_wide = 10;        // 10.0
+    print(f_wide);
+
+    // Mixed int-float expression → float result
+    float f_mix = f1 + 3;     // 5.0 + 3 = 8.0
+    print(f_mix);
+
+    // ── 4.4  Comparison operators (all produce bool) ──────────────────────────
+    bool cmp_lt = a < b;      // 10 < 5  → 0
+    print(cmp_lt);
+    bool cmp_gt = a > b;      // 10 > 5  → 1
+    print(cmp_gt);
+    bool cmp_le = b <= 5;     // 5 <= 5  → 1
+    print(cmp_le);
+    bool cmp_ge = b >= 6;     // 5 >= 6  → 0
+    print(cmp_ge);
+    bool cmp_eq = a == 10;    // 10 == 10 → 1
+    print(cmp_eq);
+    bool cmp_ne = a != 10;    // 10 != 10 → 0
+    print(cmp_ne);
+
+    // ── 4.5  Char literals including escape sequences ─────────────────────────
+    char c_nl  = '\n';
+    char c_tab = '\t';
+    char c_bs  = '\\';
+    char c_A   = 'A';
+
+    print(c_nl);              // newline (syscall 11)
+    print(c_tab);             // tab
+    print(c_bs);              // backslash (ASCII 92)
+    print(c_A);               // 65
+
+    // ── 4.6  Bool literals ───────────────────────────────────────────────────
+    bool bt = true;
+    bool bf = false;
+    print(bt);                // 1
+    print(bf);                // 0
+
+    // ── 4.7  Function calls ───────────────────────────────────────────────────
+    int s_add = addTwo(13, 17);     // 30
+    print(s_add);
+
+    int s_mul = mul(6, 7);          // 42
+    print(s_mul);
+
+    int s_max1 = maxOf(3, 9);       // 9
+    print(s_max1);
+    int s_max2 = maxOf(9, 3);       // 9
+    print(s_max2);
+
+    // Nothing-returning helper (call as statement)
+    printVal(999);                  // 999
+
+    // Bool-returning function
+    bool p_pos = isPos(5);          // 1
+    print(p_pos);
+    bool p_neg = isPos(negOne);     // 0
+    print(p_neg);
+
+    // Float-returning function
+    float hf = halfOf(5);           // 2.5
+    print(hf);
+
+    // Char-returning function
+    char zc = getZ();               // 90
+    print(zc);
+
+    // Empty-body function call (no output, just no crash)
+    doNothing();
+
+    // ── 4.8  Forward reference ────────────────────────────────────────────────
+    // lateHelper is defined AFTER Master but registered in the first pass
+    int fw = lateHelper(10);        // 10 * 2 = 20
+    print(fw);
+
+    // ── 4.9  Recursion ────────────────────────────────────────────────────────
+    int fac5 = fact(5);             // 120
+    print(fac5);
+    int fac0 = fact(0);             // 1  (n<=1 path)
+    print(fac0);
+
+    // ── 4.10  Arrays ─────────────────────────────────────────────────────────
+
+    // Int array: declare, assign each slot, read each slot
+    int nums[5];
+    nums[0] = 10;
+    nums[1] = 20;
+    nums[2] = 30;
+    nums[3] = 40;
+    nums[4] = 50;
+    print(nums[0]);  // 10
+    print(nums[1]);  // 20
+    print(nums[2]);  // 30
+    print(nums[3]);  // 40
+    print(nums[4]);  // 50
+
+    // Array sum with while loop
+    int arr_sum = 0;
+    int arr_i = 0;
+    while (arr_i < 5) {
+        arr_sum = arr_sum + nums[arr_i];
+        arr_i = arr_i + 1;
+    }
+    print(arr_sum);  // 150
+
+    // Array element in expression
+    int dbl = nums[2] * 2;   // 30*2=60
+    print(dbl);               // 60
+
+    // Array element assigned from two other array elements
+    int pair = nums[1] + nums[3]; // 20+40=60
+    print(pair);              // 60
+
+    // Float array
+    float farr[3];
+    farr[0] = 1.5;
+    farr[1] = 2.5;
+    farr[2] = 3.5;
+    print(farr[0]);  // 1.5
+    print(farr[1]);  // 2.5
+    print(farr[2]);  // 3.5
+
+    // Bool array
+    bool barr[2];
+    barr[0] = true;
+    barr[1] = false;
+    print(barr[0]);  // 1
+    print(barr[1]);  // 0
+
+    // Char array
+    char carr[3];
+    carr[0] = 'C';
+    carr[1] = 'S';
+    carr[2] = 'T';
+    print(carr[0]);  // 67
+    print(carr[1]);  // 83
+    print(carr[2]);  // 84
+
+    // Array filled by for loop (i++ variant)
+    int sq[5];
+    for (int i = 0; i < 5; i++) {
+        sq[i] = i * i;
+    }
+    for (int i = 0; i < 5; i++) {
+        print(sq[i]);  // 0 1 4 9 16
+    }
+
+    // Array filled via function call result
+    int fcall_arr[3];
+    fcall_arr[0] = addTwo(1, 2);     // 3
+    fcall_arr[1] = mul(3, 4);        // 12
+    fcall_arr[2] = addTwo(10, 20);   // 30
+    print(fcall_arr[0]);  // 3
+    print(fcall_arr[1]);  // 12
+    print(fcall_arr[2]);  // 30
+
+    // Large array (size 10) filled and summed
+    int big[10];
+    for (int i = 0; i < 10; i++) {
+        big[i] = i * 3;
+    }
+    int big_sum = 0;
+    for (int i = 0; i < 10; i++) {
+        big_sum = big_sum + big[i];
+    }
+    print(big_sum);  // 0+3+6+9+12+15+18+21+24+27 = 135
+
+    // ── 4.11  Structs ─────────────────────────────────────────────────────────
+
+    // Single struct instance
+    Point p;
+    p.x = 10;
+    p.y = 20;
+    print(p.x);              // 10
+    print(p.y);              // 20
+    int pt_sum = p.x + p.y;  // 30
+    print(pt_sum);           // 30
+
+    // Two struct instances of different types in same function
+    Rect r;
+    r.width  = 100;
+    r.height = 200;
+    print(r.width);          // 100
+    print(r.height);         // 200
+    int area = r.width * r.height;   // 20000
+    print(area);             // 20000
+
+    // Field used as function argument
+    int farg = addTwo(p.x, p.y);     // 10+20=30
+    print(farg);             // 30
+
+    // Field assigned from expression involving another field
+    p.x = p.y + 5;           // 20+5=25
+    print(p.x);              // 25
+
+    // Field in loop condition
+    Point lp;
+    lp.x = 0;
+    lp.y = 5;
+    while (lp.x < lp.y) {
+        print(lp.x);         // 0 1 2 3 4
+        lp.x = lp.x + 1;
+    }
+
+    // Field updated in for loop
+    Point fp;
+    fp.x = 0;
+    fp.y = 10;
+    for (int i = 0; i < 4; i++) {
+        fp.x = fp.x + fp.y;  // += 10 each iteration
+    }
+    print(fp.x);             // 40
+
+    // Field in switch expression
+    Point sp;
+    sp.x = 2;
+    sp.y = 0;
+    switch (sp.x) {
+        case 1:
+            print(1);
+            break;
+        case 2:
+            print(22);       // 22
+            break;
+        default:
+            print(0);
+    }
+
+    // ── 4.12  While loops ─────────────────────────────────────────────────────
+
+    // Basic count-up (tests < condition)
+    int wi = 1;
+    while (wi <= 5) {
+        print(wi);           // 1 2 3 4 5
+        wi = wi + 1;
+    }
+
+    // Accumulate
+    int acc = 0;
+    int wj = 1;
+    while (wj <= 5) {
+        acc = acc + wj;
+        wj = wj + 1;
+    }
+    print(acc);              // 15
+
+    // == condition (loop runs exactly once)
+    int wk = 10;
+    while (wk == 10) {
+        print(wk);           // 10
+        wk = wk + 1;
+    }
+
+    // != condition
+    int wm = 3;
+    while (wm != 0) {
+        print(wm);           // 3 2 1
+        wm = wm - 1;
+    }
+
+    // >= condition (count down)
+    int wn = 3;
+    while (wn >= 1) {
+        print(wn);           // 3 2 1
+        wn = wn - 1;
+    }
+
+    // <= condition (count up)
+    int wo = 1;
+    while (wo <= 3) {
+        print(wo);           // 1 2 3
+        wo = wo + 1;
+    }
+
+    // Nested while loops
+    int ni = 1;
+    while (ni <= 3) {
+        int nj = 1;
+        while (nj <= 3) {
+            print(nj);       // 1 2 3  (three times, once per outer iteration)
+            nj = nj + 1;
+        }
+        ni = ni + 1;
+    }
+
+    // while with if inside
+    int wi2 = 1;
+    while (wi2 <= 6) {
+        if (wi2 == 3) then {
+            print(300);      // 300  (printed once)
+        }
+        wi2 = wi2 + 1;
+    }
+
+    // Bool variable controlling while loop
+    bool running = true;
+    int cnt = 0;
+    while (running == true) {
+        cnt = cnt + 1;
+        if (cnt == 3) then {
+            running = false;
+        }
+    }
+    print(cnt);              // 3
+
+    // Empty-body while (body = NULL, legal grammar — no output, no crash)
+    int never = 0;
+    while (never > 999) {
+    }
+
+    // ── 4.13  For loops ───────────────────────────────────────────────────────
+
+    // Basic for with i++ (INC token path)
+    for (int i = 0; i < 5; i++) {
+        print(i);            // 0 1 2 3 4
+    }
+
+    // For with explicit assignment update
+    for (int i = 10; i <= 30; i = i + 10) {
+        print(i);            // 10 20 30
+    }
+
+    // For loop with if inside
+    int even_sum = 0;
+    for (int i = 0; i < 6; i++) {
+        if (i == 2) then { even_sum = even_sum + i; }
+        if (i == 4) then { even_sum = even_sum + i; }
+    }
+    print(even_sum);         // 6
+
+    // Nested for loops
+    for (int i = 1; i <= 2; i++) {
+        for (int j = 1; j <= 2; j++) {
+            int prod = i * j;
+            print(prod);     // 1 2 2 4
+        }
+    }
+
+    // Reuse same loop-var name in two consecutive fors (addOrReuseVar path)
+    int lsum1 = 0;
+    for (int i = 0; i < 5; i++) {
+        lsum1 = lsum1 + i;
+    }
+    print(lsum1);            // 10
+
+    int lsum2 = 0;
+    for (int i = 0; i < 5; i++) {
+        lsum2 = lsum2 + i * 2;
+    }
+    print(lsum2);            // 20
+
+    // For loop calling a function in its body
+    int call_acc = 0;
+    for (int i = 1; i <= 4; i++) {
+        call_acc = call_acc + addTwo(i, i);  // 2+4+6+8 = 20
+    }
+    print(call_acc);         // 20
+
+    // Empty-body for (body = NULL, legal grammar — no output, no crash)
+    for (int i = 0; i < 0; i++) {
+    }
+
+    // ── 4.14  If / alternatively ──────────────────────────────────────────────
+
+    int iv = 5;
+
+    // if alone — condition true
+    if (iv > 0) then {
+        print(10);           // 10
+    }
+
+    // if alone — condition false (no output)
+    if (iv > 100) then {
+        print(9999);
+    }
+
+    // if/alternatively — true branch taken
+    if (iv == 5) then {
+        print(20);           // 20
+    } alternatively {
+        print(21);
+    }
+
+    // if/alternatively — false branch taken
+    if (iv == 99) then {
+        print(99);
+    } alternatively {
+        print(30);           // 30
+    }
+
+    // Nested if-else chain (grade-style)
+    int grade = 75;
+    if (grade >= 90) then {
+        print(4);
+    } alternatively {
+        if (grade >= 80) then {
+            print(3);
+        } alternatively {
+            if (grade >= 70) then {
+                print(2);    // 2
+            } alternatively {
+                print(1);
+            }
+        }
+    }
+
+    // Empty then-body (legal)
+    if (false) then {
+    } alternatively {
+        print(888);          // 888
+    }
+
+    // Empty else-body (legal)
+    if (true) then {
+        print(777);          // 777
+    } alternatively {
+    }
+
+    // if inside for loop
+    int ev_acc = 0;
+    for (int i = 0; i < 10; i++) {
+        if (i == 2) then { ev_acc = ev_acc + i; }
+        if (i == 4) then { ev_acc = ev_acc + i; }
+        if (i == 6) then { ev_acc = ev_acc + i; }
+        if (i == 8) then { ev_acc = ev_acc + i; }
+    }
+    print(ev_acc);           // 20
+
+    // while inside if
+    if (true) then {
+        int wb = 1;
+        while (wb <= 3) {
+            print(wb);       // 1 2 3
+            wb = wb + 1;
+        }
+    }
+
+    // ── 4.15  Switch / case / default / break ─────────────────────────────────
+
+    // Match exact case
+    int sv = 2;
+    switch (sv) {
+        case 1:
+            print(100);
+            break;
+        case 2:
+            print(200);      // 200
+            break;
+        case 3:
+            print(300);
+            break;
+        default:
+            print(0);
+    }
+
+    // No matching case → default
+    int sv2 = 99;
+    switch (sv2) {
+        case 1:
+            print(1);
+            break;
+        case 2:
+            print(2);
+            break;
+        default:
+            print(999);      // 999
+    }
+
+    // Subject is an expression (function call result)
+    int sw3 = addTwo(1, 1);   // 2
+    switch (sw3) {
+        case 2:
+            print(42);       // 42
+            break;
+        default:
+            print(0);
+    }
+
+    // Bool subject: true == 1
+    bool bsw = true;
+    switch (bsw) {
+        case 1:
+            print(111);      // 111
+            break;
+        case 0:
+            print(222);
+            break;
+    }
+
+    // Multiple statements in one case body
+    int sv4 = 3;
+    switch (sv4) {
+        case 3:
+            int cv = 10;
+            print(cv);       // 10
+            print(cv + 5);   // 15
+            break;
+        default:
+            print(0);
+    }
+
+    // Switch inside while loop
+    int swi = 1;
+    while (swi <= 3) {
+        switch (swi) {
+            case 1:
+                print(10);   // 10
+                break;
+            case 2:
+                print(20);   // 20
+                break;
+            case 3:
+                print(30);   // 30
+                break;
+        }
+        swi = swi + 1;
+    }
+
+    // Switch inside if
+    int sv5 = 5;
+    if (sv5 > 0) then {
+        switch (sv5) {
+            case 5:
+                print(500);  // 500
+                break;
+            default:
+                print(0);
+        }
+    }
+
+    // Nested switch
+    int outer_sw = 1;
+    int inner_sw = 2;
+    switch (outer_sw) {
+        case 1:
+            switch (inner_sw) {
+                case 1:
+                    print(11);
+                    break;
+                case 2:
+                    print(12);  // 12
+                    break;
+            }
+            break;
+        case 2:
+            print(20);
+            break;
+    }
+
+    // ── 4.16  Boundary and edge-case values ──────────────────────────────────
+
+    // Maximum valid int literal
+    int max_int = 2147483647;
+    print(max_int);          // 2147483647
+
+    // Zero
+    int zero = 0;
+    print(zero);             // 0
+
+    // "Negative" value via subtraction
+    int neg42 = 0 - 42;
+    print(neg42);            // -42
+
+    // ── 4.17  Nested function calls as arguments ──────────────────────────────
+    // addTwo(addTwo(1,2), addTwo(3,4)) = addTwo(3, 7) = 10
+    int chain = addTwo(addTwo(1, 2), addTwo(3, 4));
+    print(chain);            // 10
+
+    // ── 4.18  Bool comparisons printed directly ───────────────────────────────
+    int cbase = 5;
+    bool cc1 = cbase == 5;   // 1
+    bool cc2 = cbase != 5;   // 0
+    bool cc3 = cbase < 6;    // 1
+    bool cc4 = cbase > 4;    // 1
+    bool cc5 = cbase <= 5;   // 1
+    bool cc6 = cbase >= 5;   // 1
+    print(cc1); print(cc2); print(cc3);
+    print(cc4); print(cc5); print(cc6);
+
+    // ── 4.19  Float comparison producing bool ────────────────────────────────
+    float ftest = 3.14;
+    bool fgt = ftest > 3.0;  // 1
+    bool flt = ftest < 3.0;  // 0
+    print(fgt);
+    print(flt);
+
+    // ── 4.20  Global variable mutated and re-read ─────────────────────────────
+    gIntA = gIntA + 50;      // 100 + 50 = 150
+    print(gIntA);            // 150
+
+    gSeed = addTwo(gSeed, 3); // 7 + 3 = 10
+    print(gSeed);            // 10
+
+    // ── 4.21  Comments: single-line and multi-line ────────────────────────────
+    // Single-line comment before and after this statement
+    int comment_var = 42; /* inline block comment */
+    print(comment_var);      // 42
+
+    // ── 4.22  Uninitialized variable warning (semantic warning, not error) ────
+    // Declare without init — should emit warning but compile fine.
+    // We do NOT print it (value is undefined in MIPS) — just verify no crash.
+    int uninit_warn;
+    // print(uninit_warn);  -- intentionally commented out; value is garbage
+
+    // ── 4.23  Recursion with maxOf in expression ──────────────────────────────
+    int rec_chain = maxOf(fact(3), fact(4));   // maxOf(6, 24) = 24
+    print(rec_chain);        // 24
+
+}  // end Master
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SECTION 5 — POST-MASTER FUNCTION  (forward reference target)
+//   lateHelper is CALLED in Master but DEFINED here — exercises first-pass
+//   function-registration which must catch this before Master is analyzed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function lateHelper(int x) returns int {
+    return x * 2;
+}
+
+// =============================================================================
+// KNOWN-BUG TEST CASES — run these SEPARATELY; they should all FAIL.
+//
+// Uncomment one at a time and verify the compiler produces a semantic error.
+//
+// BUG-1  THREE-PARAM FUNCTION:
+//   function threeParam(int a, int b, int c) returns int { return a+b+c; }
+//   function Master() returns nothing { int x = threeParam(1,2,3); print(x); }
+//   Expected: ✗ SEMANTIC ERROR — 'c' used before declaration, wrong arg count.
+//
+// BUG-2  THREE-FIELD STRUCT:
+//   struct Trio { int x; int y; int z; }
+//   function Master() returns nothing {
+//       Trio t; t.x = 1; t.y = 2; t.z = 3;
+//       print(t.x); print(t.z);   // z is never registered
+//   }
+//   Expected: ✗ SEMANTIC ERROR — Struct 'Trio' has no field 'x' (and 'y').
+// =============================================================================

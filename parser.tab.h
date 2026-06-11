@@ -64,7 +64,11 @@
      STRUCT = 280,
      IF = 281,
      THEN = 282,
-     ALTERNATIVELY = 283
+     ALTERNATIVELY = 283,
+     SWITCH = 284,
+     CASE = 285,
+     DEFAULT = 286,
+     BREAK = 287
    };
 #endif
 /* Tokens.  */
@@ -94,6 +98,10 @@
 #define IF 281
 #define THEN 282
 #define ALTERNATIVELY 283
+#define SWITCH 284
+#define CASE 285
+#define DEFAULT 286
+#define BREAK 287
 
 
 
@@ -108,7 +116,7 @@ typedef union YYSTYPE
     struct ASTNode* node;
 }
 /* Line 1529 of yacc.c.  */
-#line 112 "parser.tab.h"
+#line 120 "parser.tab.h"
 	YYSTYPE;
 # define yystype YYSTYPE /* obsolescent; will be withdrawn */
 # define YYSTYPE_IS_DECLARED 1

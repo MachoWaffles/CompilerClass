@@ -49,6 +49,11 @@ int yycolno = 1;
 "alternatively"          { if (displayTokens) printf("  TOKEN: ELSE keyword\n");  return ALTERNATIVELY; }
 "then"          { if (displayTokens) printf("  TOKEN: THEN keyword\n");  return THEN; }
 
+"switch"        { if (displayTokens) printf("  TOKEN: SWITCH keyword\n"); return SWITCH; }
+"case"          { if (displayTokens) printf("  TOKEN: CASE keyword\n"); return CASE; }
+"default"       { if (displayTokens) printf("  TOKEN: DEFAULT keyword\n"); return DEFAULT; }
+"break"         { if (displayTokens) printf("  TOKEN: BREAK keyword\n"); return BREAK; }
+
 [a-zA-Z_][a-zA-Z0-9_]* {
     if (displayTokens) printf("  TOKEN: ID '%s'\n", yytext);
     yylval.str = strdup(yytext);
@@ -102,6 +107,8 @@ int yycolno = 1;
 "}"             { if (displayTokens) printf("  TOKEN: '}'\n"); return '}'; }
 ","             { if (displayTokens) printf("  TOKEN: ','\n"); return ','; }
 "."            { if (displayTokens) printf("  TOKEN: .\n"); return '.'; }
+":"            { if (displayTokens) printf("  TOKEN: ':'\n"); return ':'; }
+
 
 [ \t]           { }
 \n              { yycolno = 1; }

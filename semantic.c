@@ -123,9 +123,85 @@ const char* getExprType(ASTNode* node) {
     }
 }
 
+/* ── RECURSIVE LIST-WALKING HELPERS ─────────────────────────────────────── */
+/* Forward declarations needed by checkArgs */
+void analyzeExpr(ASTNode* node);
+const char* getExprType(ASTNode* node);
+/* The parser builds param lists and field lists as left-leaning binary trees:
+ *   createStmtList(createStmtList(a, b), c)
+ * A flat while-loop that peels one level at a time only ever reaches the
+ * right-most sibling — every item on the left subtree is missed after the
+ * first NODE_STMT_LIST whose .stmt is itself another NODE_STMT_LIST.
+ * These three helpers recurse into both children so every leaf is visited. */
+
+/* Register all params of funcName into the function table (first pass). */
+static void registerParams(char* funcName, ASTNode* p) {
+    if (!p) return;
+    if (p->type == NODE_PARAM_DECL) {
+        addFuncParam(funcName, p->data.param.paramType, p->data.param.name);
+    } else if (p->type == NODE_STMT_LIST) {
+        registerParams(funcName, p->data.stmtlist.stmt);
+        registerParams(funcName, p->data.stmtlist.next);
+    }
+}
+
+/* Add all params of funcName as local variables in the current scope (second pass). */
+static void addParamsAsLocals(ASTNode* p, const char* fname) {
+    if (!p) return;
+    if (p->type == NODE_PARAM_DECL) {
+        int off = addVar(p->data.param.name, p->data.param.paramType);
+        if (off != -1) {
+            markInitialized(p->data.param.name);
+            printf("  ✓ Parameter '%s' (type: %s) added to scope '%s'\n",
+                   p->data.param.name, p->data.param.paramType, fname);
+        }
+    } else if (p->type == NODE_STMT_LIST) {
+        addParamsAsLocals(p->data.stmtlist.stmt, fname);
+        addParamsAsLocals(p->data.stmtlist.next, fname);
+    }
+}
+
+/* Register all fields of a struct definition. */
+static void registerStructFields(char* sname, ASTNode* flist) {
+    if (!flist) return;
+    if (flist->type == NODE_DECL) {
+        addStructField(sname,
+                       flist->data.decl.varType,
+                       flist->data.decl.name);
+        printf("  ✓ Struct '%s' field '%s' (type: %s)\n",
+               sname, flist->data.decl.name, flist->data.decl.varType);
+    } else if (flist->type == NODE_STMT_LIST) {
+        registerStructFields(sname, flist->data.stmtlist.stmt);
+        registerStructFields(sname, flist->data.stmtlist.next);
+    }
+}
+
+/* Recursively walk an arg list, type-checking each leaf expression against
+ * the declared parameter types and incrementing *count / *idx. */
+static void checkArgs(const char* fname, ASTNode* arg,
+                      int* count, int* idx) {
+    if (!arg) return;
+    if (arg->type == NODE_STMT_LIST) {
+        checkArgs(fname, arg->data.stmtlist.stmt, count, idx);
+        checkArgs(fname, arg->data.stmtlist.next, count, idx);
+    } else {
+        /* Leaf — this is an actual argument expression */
+        (*count)++;
+        const char* argType   = getExprType(arg);
+        const char* paramType = getFuncParamType((char*)fname, *idx);
+        if (paramType && argType && !typesCompatible(paramType, argType)) {
+            char msg[512];
+            snprintf(msg, sizeof(msg),
+                "Argument %d to '%s': expected %s, got %s",
+                *idx + 1, fname, paramType, argType);
+            reportSemanticError(msg);
+        }
+        analyzeExpr(arg);
+        (*idx)++;
+    }
+}
+
 /* ── FIRST PASS: Register all function declarations ──────────────────────── */
-/* We do a quick scan before the main analysis so that forward calls to
- * functions declared later in the file are handled correctly. */
 static void registerFunctions(ASTNode* node) {
     if (!node) return;
     if (node->type == NODE_STMT_LIST) {
@@ -135,28 +211,12 @@ static void registerFunctions(ASTNode* node) {
     }
     if (node->type == NODE_FUNC_DECL) {
         addFunc(node->data.funcDecl.name, node->data.funcDecl.returnType);
-        /* Register parameters so their types are available for call-site checks */
-        ASTNode* p = node->data.funcDecl.params;
-        while (p) {
-            if (p->type == NODE_PARAM_DECL) {
-                addFuncParam(node->data.funcDecl.name,
-                             p->data.param.paramType,
-                             p->data.param.name);
-                p = NULL; /* single param — no next */
-            } else if (p->type == NODE_STMT_LIST) {
-                ASTNode* curr = p->data.stmtlist.stmt;
-                if (curr && curr->type == NODE_PARAM_DECL) {
-                    addFuncParam(node->data.funcDecl.name,
-                                 curr->data.param.paramType,
-                                 curr->data.param.name);
-                }
-                p = p->data.stmtlist.next;
-            } else {
-                break;
-            }
-        }
+        /* Register parameters — walk the left-leaning STMT_LIST tree recursively
+         * so that functions with any number of params are handled correctly. */
+        registerParams(node->data.funcDecl.name, node->data.funcDecl.params);
     }
 }
+
 
 /* ── EXPRESSION ANALYSIS ─────────────────────────────────────────────────── */
 void analyzeExpr(ASTNode* node) {
@@ -252,39 +312,14 @@ void analyzeExpr(ASTNode* node) {
             }
             printf("  ✓ Function '%s' is declared\n", fname);
 
-            /* Count and type-check arguments */
+            /* Count and type-check arguments.
+             * The arg list is a left-leaning STMT_LIST tree — use the same
+             * recursive helper pattern to flatten it before checking. */
             int expectedCount = getFuncParamCount((char*)fname);
             int actualCount   = 0;
-            ASTNode* arg      = node->data.funcCall.args;
             int argIdx        = 0;
-
-            /* Walk the argument list (stored as nested STMT_LIST or single expr) */
-            while (arg) {
-                ASTNode* argExpr = NULL;
-                if (arg->type == NODE_STMT_LIST) {
-                    argExpr = arg->data.stmtlist.stmt;
-                    arg     = arg->data.stmtlist.next;
-                } else {
-                    argExpr = arg;
-                    arg     = NULL;
-                }
-                if (!argExpr) break;
-                actualCount++;
-
-                /* Type-check this argument against the declared parameter type */
-                const char* argType   = getExprType(argExpr);
-                const char* paramType = getFuncParamType((char*)fname, argIdx);
-                if (paramType && argType &&
-                    !typesCompatible(paramType, argType)) {
-                    char msg[512];
-                    snprintf(msg, sizeof(msg),
-                        "Argument %d to '%s': expected %s, got %s",
-                        argIdx + 1, fname, paramType, argType);
-                    reportSemanticError(msg);
-                }
-                analyzeExpr(argExpr);
-                argIdx++;
-            }
+            checkArgs(fname, node->data.funcCall.args,
+                      &actualCount, &argIdx);
 
             if (actualCount != expectedCount) {
                 char msg[256];
@@ -489,29 +524,7 @@ void analyzeStmt(ASTNode* node) {
             currentFuncReturnType = returnType;
 
             /* Add parameters as local variables so they are visible in the body */
-            ASTNode* p = node->data.funcDecl.params;
-            while (p) {
-                ASTNode* paramNode = NULL;
-                if (p->type == NODE_PARAM_DECL) {
-                    paramNode = p;
-                    p = NULL;
-                } else if (p->type == NODE_STMT_LIST) {
-                    paramNode = p->data.stmtlist.stmt;
-                    p = p->data.stmtlist.next;
-                } else {
-                    break;
-                }
-                if (paramNode && paramNode->type == NODE_PARAM_DECL) {
-                    int off = addVar(paramNode->data.param.name,
-                                     paramNode->data.param.paramType);
-                    if (off != -1) {
-                        markInitialized(paramNode->data.param.name);
-                        printf("  ✓ Parameter '%s' (type: %s) added to scope '%s'\n",
-                               paramNode->data.param.name,
-                               paramNode->data.param.paramType, fname);
-                    }
-                }
-            }
+            addParamsAsLocals(node->data.funcDecl.params, fname);
 
             /* Analyze the function body */
             analyzeStmt(node->data.funcDecl.body);
@@ -557,29 +570,10 @@ void analyzeStmt(ASTNode* node) {
                 reportSemanticError(msg);
                 break;
             }
-            /* Walk the field list (NODE_STMT_LIST of NODE_DECL) */
-            ASTNode* flist = node->data.structDecl.fields;
-            while (flist) {
-                ASTNode* fnode = NULL;
-                if (flist->type == NODE_DECL) {
-                    fnode = flist;
-                    flist = NULL;
-                } else if (flist->type == NODE_STMT_LIST) {
-                    fnode = flist->data.stmtlist.stmt;
-                    flist = flist->data.stmtlist.next;
-                } else {
-                    break;
-                }
-                if (fnode && fnode->type == NODE_DECL) {
-                    addStructField(sname,
-                                   fnode->data.decl.varType,
-                                   fnode->data.decl.name);
-                    printf("  ✓ Struct '%s' field '%s' (type: %s)\n",
-                           sname,
-                           fnode->data.decl.name,
-                           fnode->data.decl.varType);
-                }
-            }
+            /* Walk the field list recursively — the grammar builds a left-leaning
+             * NODE_STMT_LIST tree, so a flat while-loop only reaches 2 fields.
+             * registerStructFields handles arbitrary depth. */
+            registerStructFields(sname, node->data.structDecl.fields);
             printf("  ✓ Struct type '%s' defined (%d field(s))\n",
                    sname, getStructFieldCount(sname));
             break;
@@ -640,6 +634,21 @@ void analyzeStmt(ASTNode* node) {
         }
         case NODE_ELSE: {
             analyzeStmt(node->data.elseBody);
+            break;
+        }
+       case NODE_SWITCH: {
+            analyzeExpr(node->data.switchStmt.expr);
+            analyzeStmt(node->data.switchStmt.cases);
+            break;
+        }
+        case NODE_CASE: {
+            analyzeExpr(node->data.caseStmt.value);
+            analyzeStmt(node->data.caseStmt.body);
+            break;
+        }
+
+        case NODE_DEFAULT: {
+            analyzeStmt(node->data.defaultBody);
             break;
         }
         

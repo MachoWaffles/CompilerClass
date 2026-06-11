@@ -179,6 +179,7 @@ ASTNode* createFor(ASTNode* init, ASTNode* condition,
     return node;
 }
 
+
 /* ── PRINT AST ────────────────────────────────────────────────────────────── */
 void printAST(ASTNode* node, int level) {
     if (!node) return;
@@ -377,8 +378,37 @@ void printAST(ASTNode* node, int level) {
             printf("ELSE\n");
             printAST(node->data.elseBody, level + 1);
             break;
-            }
-        }
+
+        case NODE_SWITCH:
+            printf("SWITCH\n");
+
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("EXPR:\n");
+            printAST(node->data.switchStmt.expr, level + 2);
+
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("CASES:\n");
+            printAST(node->data.switchStmt.cases, level + 2);
+            break;
+
+        case NODE_CASE:
+            printf("CASE\n");
+
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("VALUE:\n");
+            printAST(node->data.caseStmt.value, level + 2);
+
+            for (int i = 0; i < level + 1; i++) printf("  ");
+            printf("BODY:\n");
+            printAST(node->data.caseStmt.body, level + 2);
+            break;
+
+        case NODE_DEFAULT:
+            printf("DEFAULT\n");
+            printAST(node->data.defaultBody, level + 1);
+            break;
+    }
+}
 
 /* ── STRUCT CONSTRUCTORS ─────────────────────────────────────────────────── */
 
@@ -428,5 +458,28 @@ ASTNode* createIf(ASTNode* condition, ASTNode* thenBody, ASTNode* elseBody) {
     node->data.ifStmt.condition = condition;
     node->data.ifStmt.thenBody  = thenBody;
     node->data.ifStmt.elseBody  = elseBody;
+    return node;
+}
+
+ASTNode* createSwitch(ASTNode* expr, ASTNode* cases) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_SWITCH;
+    node->data.switchStmt.expr = expr;
+    node->data.switchStmt.cases = cases;
+    return node;
+}
+
+ASTNode* createCase(ASTNode* value, ASTNode* body) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_CASE;
+    node->data.caseStmt.value = value;
+    node->data.caseStmt.body = body;
+    return node;
+}
+
+ASTNode* createDefault(ASTNode* body) {
+    ASTNode* node = malloc(sizeof(ASTNode));
+    node->type = NODE_DEFAULT;
+    node->data.defaultBody = body;
     return node;
 }
