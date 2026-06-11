@@ -26,8 +26,10 @@ _addTwo:
     lw $t1, 4($fp)
     add $t0, $t0, $t1
     move $v0, $t0
+    j _addTwo_epilogue
 
     # Epilogue
+_addTwo_epilogue:
     lw   $ra, 12($sp)
     lw   $fp, 8($sp)
     addi $sp, $sp, 16
@@ -47,8 +49,10 @@ _mul:
     lw $t1, 4($fp)
     mul $t0, $t0, $t1
     move $v0, $t0
+    j _mul_epilogue
 
     # Epilogue
+_mul_epilogue:
     lw   $ra, 12($sp)
     lw   $fp, 8($sp)
     addi $sp, $sp, 16
@@ -70,15 +74,18 @@ _maxOf:
     beq $t0, $zero, _if_end_0
     lw $t0, 0($fp)
     move $v0, $t0
+    j _maxOf_epilogue
     j _if_else_0
 _if_end_0:
 
     lw $t0, 4($fp)
     move $v0, $t0
+    j _maxOf_epilogue
 _if_else_0:
 
 
     # Epilogue
+_maxOf_epilogue:
     lw   $ra, 12($sp)
     lw   $fp, 8($sp)
     addi $sp, $sp, 16
@@ -100,6 +107,7 @@ _fact:
     beq $t0, $zero, _if_end_1
     li $t0, 1
     move $v0, $t0
+    j _fact_epilogue
 _if_end_1:
 
     lw $t0, 0($fp)
@@ -111,8 +119,10 @@ _if_end_1:
     move $t1, $v0
     mul $t0, $t0, $t1
     move $v0, $t0
+    j _fact_epilogue
 
     # Epilogue
+_fact_epilogue:
     lw   $ra, 8($sp)
     lw   $fp, 4($sp)
     addi $sp, $sp, 12
@@ -138,8 +148,10 @@ _halfOf:
     div.s $f0, $f0, $f2
     mfc1 $t0, $f0
     move $v0, $t0
+    j _halfOf_epilogue
 
     # Epilogue
+_halfOf_epilogue:
     lw   $ra, 12($sp)
     lw   $fp, 8($sp)
     addi $sp, $sp, 16
@@ -155,8 +167,10 @@ _getZ:
 
     li $t0, 90
     move $v0, $t0
+    j _getZ_epilogue
 
     # Epilogue
+_getZ_epilogue:
     lw   $ra, 4($sp)
     lw   $fp, 0($sp)
     addi $sp, $sp, 8
@@ -177,15 +191,18 @@ _isPos:
     beq $t0, $zero, _if_end_2
     li $t0, 1
     move $v0, $t0
+    j _isPos_epilogue
     j _if_else_2
 _if_end_2:
 
     li $t0, 0
     move $v0, $t0
+    j _isPos_epilogue
 _if_else_2:
 
 
     # Epilogue
+_isPos_epilogue:
     lw   $ra, 8($sp)
     lw   $fp, 4($sp)
     addi $sp, $sp, 12
@@ -207,8 +224,10 @@ _printVal:
     li   $v0, 11
     li   $a0, 10
     syscall
+    j _printVal_epilogue
 
     # Epilogue
+_printVal_epilogue:
     lw   $ra, 8($sp)
     lw   $fp, 4($sp)
     addi $sp, $sp, 12
@@ -224,6 +243,7 @@ _doNothing:
 
 
     # Epilogue
+_doNothing_epilogue:
     lw   $ra, 4($sp)
     lw   $fp, 0($sp)
     addi $sp, $sp, 8
@@ -2651,6 +2671,7 @@ _print_bool_done_21:
     syscall
 
     # Epilogue
+_Master_epilogue:
     lw   $ra, 616($sp)
     lw   $fp, 612($sp)
     addi $sp, $sp, 620
@@ -2669,8 +2690,10 @@ _lateHelper:
     li $t1, 2
     mul $t0, $t0, $t1
     move $v0, $t0
+    j _lateHelper_epilogue
 
     # Epilogue
+_lateHelper_epilogue:
     lw   $ra, 8($sp)
     lw   $fp, 4($sp)
     addi $sp, $sp, 12

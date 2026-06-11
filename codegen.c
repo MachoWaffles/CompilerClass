@@ -36,6 +36,7 @@ static void resetTemps() {
 static int printLabelCount = 0;
 static int loopLabelCount  = 0;
 static int inForInit       = 0;  /* suppresses duplicate-decl error in for init */
+static char currentFuncName[256] = "";  /* tracks function being compiled for return jumps */
 
 /* ── FORWARD DECLARATIONS ───────────────────────────────────────────────── */
 static int         genExpr(ASTNode* node);
@@ -455,6 +456,8 @@ static int countLocals(ASTNode* node) {
 static void genFuncDecl(ASTNode* node) {
 
     const char* fname = node->data.funcDecl.name;
+    strncpy(currentFuncName, fname, sizeof(currentFuncName) - 1);
+    currentFuncName[sizeof(currentFuncName) - 1] = '\0';
 
     int frameSize = 8;
 
@@ -542,6 +545,7 @@ static void genFuncDecl(ASTNode* node) {
     genStmt(node->data.funcDecl.body);
 
     fprintf(output, "\n    # Epilogue\n");
+    fprintf(output, "_%s_epilogue:\n", fname);
 
     fprintf(output,
             "    lw   $ra, %d($sp)\n",
@@ -806,6 +810,11 @@ static void genStmt(ASTNode* node) {
                 free_temp(r);
             }
 
+            /* Jump to the epilogue so we restore $ra/$fp and return properly.
+             * Without this, a return inside an if-body falls through into the
+             * code that follows (e.g. the recursive case in factorial). */
+            fprintf(output, "    j _%s_epilogue\n", currentFuncName);
+
             break;
         }
 
@@ -892,11 +901,6 @@ static void genStmt(ASTNode* node) {
             break;
         }
 
-        case NODE_SWITCH: {
-            /* Implementation for switch statement code generation */
-            break;
-        }
-        
         /* These node types are expression nodes handled by genExpr, or
          * structural nodes (PARAM_DECL, FUNC_DECL) handled elsewhere.
          * They should never arrive at genStmt; list them explicitly to
